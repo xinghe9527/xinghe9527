@@ -1,0 +1,23 @@
+# FLUTTER EXPERT SETTINGS FOR XINGHE PROJECT
+
+## 1. PERFORMANCE FIRST (NON-NEGOTIABLE)
+- **NO BLOCKING THE UI:** Never perform JSON parsing (`jsonDecode`) or heavy computations on the Main Thread. Use `compute()` or `Isolates`.
+- **FFmpeg Handling:** All FFmpeg operations must run in a separate Isolate or fully asynchronous non-blocking process.
+- **Image Caching:** Use `cached_network_image` for all API images.
+
+## 2. STATE MANAGEMENT & ARCHITECTURE
+- **Pattern:** Refactor towards a Service-Repository-Provider pattern. Avoid raw Singletons for UI state.
+- **Updates:** Minimize widget rebuilds. Use `Selector` or specific `Consumer` logic if using Provider.
+
+## 3. API & NETWORK
+- **Smart Polling:** Do not use `Timer.periodic` with fixed intervals for long tasks. Implement "Exponential Backoff" (start at 2s, then 4s, 8s...).
+- **Error Handling:** Always wrap API calls in try-catch blocks and handle specific HTTP status codes.
+
+## 4. CODE STYLE
+- Use strict typing. Avoid `dynamic` unless absolutely necessary.
+- Extract complex logic from UI widgets into Service classes.
+
+# Workflow Rules
+- When you finish a multi-step task or a long coding generation, ALWAYS execute a terminal command to alert me.
+- If on macOS, run: `say "Cursor task finished"`
+- If on Windows, run: `powershell -c "[System.Console]::Beep(800, 300)"`
