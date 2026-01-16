@@ -14,6 +14,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'services/index.dart';
+import 'services/update_service.dart';
 import 'save_settings_panel.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'services/prompt_store.dart';
@@ -66,6 +67,21 @@ void main() async {
   
   // 确保应用能够启动（无论初始化是否成功）
   runApp(const AnimeApp());
+  
+  // 延迟检查更新（应用启动后3秒，避免阻塞启动）
+  Future.delayed(Duration(seconds: 3), () async {
+    try {
+      final newVersion = await updateService.checkForUpdate();
+      if (newVersion != null) {
+        // 如果有新版本，在应用启动后显示更新提示
+        // 注意：这里需要在 Widget 树构建后才能显示对话框
+        // 所以实际显示会在 HomePage 中处理
+      }
+    } catch (e) {
+      // 静默失败，不影响应用使用
+      print('检查更新失败: $e');
+    }
+  });
 }
 
 final apiConfigManager = ApiConfigManager();
@@ -463,6 +479,8 @@ class VideoTaskManager extends ChangeNotifier {
 
   // 活跃任务列表
   List<Map<String, dynamic>> _activeTasks = [];
+  // 失败任务列表（保留占位符，避免显示其他视频）
+  List<Map<String, dynamic>> _failedTasks = [];
   bool _isPolling = false;
   
   // 指数退避轮询配置
@@ -475,6 +493,7 @@ class VideoTaskManager extends ChangeNotifier {
   final Map<String, _TaskPollingState> _taskPollingStates = {};
 
   List<Map<String, dynamic>> get activeTasks => List.unmodifiable(_activeTasks);
+  List<Map<String, dynamic>> get failedTasks => List.unmodifiable(_failedTasks);
   bool get hasActiveTasks => _activeTasks.isNotEmpty;
   bool get isPolling => _isPolling;
 
@@ -492,6 +511,9 @@ class VideoTaskManager extends ChangeNotifier {
           _resumePolling();
         }
       }
+      
+      // 同时加载失败任务列表
+      await loadFailedTasks();
     } catch (e) {
       logService.error('加载视频任务失败', details: e.toString());
     }
@@ -540,6 +562,30 @@ class VideoTaskManager extends ChangeNotifier {
       _startPollingForTask(taskId, isFirstPoll: true);
     }
   }
+  
+  /// 替换任务ID（用于将临时占位符替换为真实任务ID）
+  void replaceTaskId(String oldTaskId, String newTaskId) {
+    final index = _activeTasks.indexWhere((t) => t['id'] == oldTaskId);
+    if (index == -1) return;
+    
+    // 更新任务ID
+    _activeTasks[index]['id'] = newTaskId;
+    
+    // 更新轮询状态
+    final pollingState = _taskPollingStates.remove(oldTaskId);
+    if (pollingState != null) {
+      _taskPollingStates[newTaskId] = pollingState;
+    }
+    
+    // 立即通知UI更新
+    notifyListeners();
+    _saveTasks();
+    
+    // 如果轮询已启动，为新任务ID启动轮询
+    if (_isPolling) {
+      _startPollingForTask(newTaskId, isFirstPoll: true);
+    }
+  }
 
   void updateTaskProgress(String taskId, int progress, String status) {
     final index = _activeTasks.indexWhere((t) => t['id'] == taskId);
@@ -551,9 +597,22 @@ class VideoTaskManager extends ChangeNotifier {
     }
   }
 
-  void removeTask(String taskId) {
+  void removeTask(String taskId, {bool isFailed = false}) {
+    final task = _activeTasks.firstWhere((t) => t['id'] == taskId, orElse: () => {});
     _activeTasks.removeWhere((t) => t['id'] == taskId);
     _taskPollingStates.remove(taskId); // 清理轮询状态
+    
+    // 如果是失败的任务，添加到失败列表（保留占位符）
+    if (isFailed && task.isNotEmpty) {
+      _failedTasks.add({
+        ...task,
+        'status': '生成失败',
+        'progress': 0,
+        'failedAt': DateTime.now().toIso8601String(),
+      });
+      _saveFailedTasks();
+    }
+    
     notifyListeners();
     _saveTasks();
     
@@ -562,12 +621,51 @@ class VideoTaskManager extends ChangeNotifier {
       stopPolling();
     }
   }
+  
+  /// 删除失败任务占位符
+  void removeFailedTask(String taskId) {
+    _failedTasks.removeWhere((t) => t['id'] == taskId);
+    _saveFailedTasks();
+    notifyListeners();
+  }
+  
+  /// 保存失败任务列表
+  Future<void> _saveFailedTasks() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('failed_video_tasks', jsonEncode(_failedTasks));
+    } catch (e) {
+      logService.error('保存失败视频任务失败', details: e.toString());
+    }
+  }
+  
+  /// 加载失败任务列表
+  Future<void> loadFailedTasks() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final tasksJson = prefs.getString('failed_video_tasks');
+      if (tasksJson != null) {
+        final List<dynamic> decoded = jsonDecode(tasksJson);
+        _failedTasks = decoded.map((e) => Map<String, dynamic>.from(e)).toList();
+        notifyListeners();
+      }
+    } catch (e) {
+      logService.error('加载失败视频任务失败', details: e.toString());
+    }
+  }
 
   void removeAllTasks() {
     _activeTasks.clear();
     notifyListeners();
     _saveTasks();
     stopPolling();
+  }
+  
+  /// 删除所有失败任务
+  void removeAllFailedTasks() {
+    _failedTasks.clear();
+    _saveFailedTasks();
+    notifyListeners();
   }
 
   int getTaskProgress(String taskId) {
@@ -636,10 +734,10 @@ class VideoTaskManager extends ChangeNotifier {
     
     // 检查是否超时（10分钟）
     final elapsed = DateTime.now().difference(pollingState.startTime);
-    if (elapsed >= _maxPollingDuration) {
+      if (elapsed >= _maxPollingDuration) {
       logService.warn('视频任务轮询超时', details: '任务$taskId 已轮询超过10分钟');
       updateTaskProgress(taskId, 0, '轮询超时');
-      removeTask(taskId);
+      removeTask(taskId, isFailed: true); // 超时也保留占位符
       return;
     }
     
@@ -682,55 +780,119 @@ class VideoTaskManager extends ChangeNotifier {
       final statusText = _getStatusText(detail.status, detail.progress);
       updateTaskProgress(taskId, detail.progress, statusText);
       
-      logService.info('视频生成进度', details: '任务$taskId: ${detail.progress}%, 状态: ${detail.status}');
+      logService.info('视频生成进度', details: '任务$taskId: ${detail.progress}%, 状态: ${detail.status}, completedAt: ${detail.completedAt}, videoUrl: ${detail.videoUrl}');
       
-      if (detail.status == 'completed' && detail.videoUrl != null) {
+      // CRITICAL: 使用更宽松的条件判断任务完成
+      // 1. status 是 completed
+      // 2. 或者 completedAt 不为 null（表示任务已完成）
+      // 3. 或者 progress 是 100%（表示已完成）
+      final statusLower = detail.status.toLowerCase();
+      final isCompleted = statusLower == 'completed' || 
+                          detail.completedAt != null || 
+                          (detail.progress >= 100 && statusLower != 'failed' && statusLower != 'error');
+      
+      // CRITICAL: 检查 videoUrl，可能在 video_url 或 url 字段
+      final videoUrl = detail.videoUrl;
+      
+      if (isCompleted && videoUrl != null && videoUrl.isNotEmpty) {
         // 视频生成完成
         await generatedMediaManager.addVideo({
           'id': taskId,
-          'url': detail.videoUrl!,
+          'url': videoUrl,
           'createdAt': DateTime.now().toString(),
         });
         
-        logService.info('视频生成成功', details: detail.videoUrl);
+        logService.info('视频生成成功', details: '任务$taskId: $videoUrl, status=${detail.status}, progress=${detail.progress}');
         removeTask(taskId);
-      } else if (detail.status == 'failed' || detail.status == 'error') {
-        // CRITICAL: 视频生成失败，立即销毁任务
+        return; // 任务完成，停止轮询
+      } else if (isCompleted && (videoUrl == null || videoUrl.isEmpty)) {
+        // 任务标记为完成但没有视频URL
+        // CRITICAL: 如果 completedAt 存在且已经过去一段时间（比如30秒），可能是失败
+        if (detail.completedAt != null) {
+          final completedTime = DateTime.fromMillisecondsSinceEpoch(detail.completedAt! * 1000);
+          final timeSinceCompleted = DateTime.now().difference(completedTime);
+          
+          if (timeSinceCompleted.inSeconds > 30) {
+            // 完成时间已过30秒但仍无URL，可能是失败
+            logService.warn('任务完成超过30秒但无视频URL，可能失败', details: '任务$taskId: status=${detail.status}, progress=${detail.progress}, completedAt=${detail.completedAt}');
+            removeTask(taskId, isFailed: true);
+            return;
+          }
+        }
+        
+        // 否则继续轮询，等待视频URL出现
+        logService.warn('任务标记为完成但无视频URL，继续轮询', details: '任务$taskId: status=${detail.status}, progress=${detail.progress}');
+      }
+      
+      // CRITICAL: 检查失败状态（使用更宽松的条件）
+      // 注意：statusLower 已经在上面定义过了，这里不需要重复定义
+      final isFailed = statusLower == 'failed' || 
+                       statusLower == 'error' || 
+                       statusLower.contains('fail') || 
+                       statusLower.contains('error') ||
+                       statusLower.contains('violat') || // 违反内容政策
+                       statusLower.contains('reject') || // 拒绝
+                       (detail.error != null);
+      
+      if (isFailed) {
+        // CRITICAL: 视频生成失败，保留占位符
         final errorMsg = detail.error != null 
           ? '${detail.error!.message} (${detail.error!.code})'
-          : '视频生成失败';
-        logService.error('视频生成失败', details: '任务$taskId: $errorMsg');
-        removeTask(taskId); // 自动销毁失败的任务
-      } else if (detail.status == 'processing' || detail.status == 'queued' || detail.status == 'pending') {
-        // 任务仍在处理中，增加轮询间隔（指数退避）
-        final newInterval = Duration(
-          milliseconds: (pollingState.currentInterval.inMilliseconds * _backoffMultiplier).round(),
-        );
+          : '视频生成失败: ${detail.status}';
+        logService.error('视频生成失败', details: '任务$taskId: $errorMsg, status=${detail.status}, progress=${detail.progress}');
+        removeTask(taskId, isFailed: true); // 保留失败占位符
+        return; // 任务失败，停止轮询
+      }
+      
+      // 任务仍在处理中
+      if (detail.status == 'processing' || 
+          detail.status == 'queued' || 
+          detail.status == 'pending' ||
+          detail.status == 'in_progress' ||
+          detail.progress < 100) {
+        // 任务仍在处理中，但保持较短的轮询间隔以确保实时更新
+        // 如果进度接近完成（>90%），使用更短的间隔
+        if (detail.progress >= 90) {
+          pollingState.currentInterval = _initialPollInterval; // 接近完成时，使用最短间隔
+        } else {
+          // 其他情况，适度增加轮询间隔（指数退避）
+          final newInterval = Duration(
+            milliseconds: (pollingState.currentInterval.inMilliseconds * _backoffMultiplier).round(),
+          );
+          
+          // 限制最大间隔为10秒
+          pollingState.currentInterval = newInterval > _maxPollInterval 
+              ? _maxPollInterval 
+              : newInterval;
+        }
         
-        // 限制最大间隔为10秒
-        pollingState.currentInterval = newInterval > _maxPollInterval 
-            ? _maxPollInterval 
-            : newInterval;
-        
-        logService.info('调整轮询间隔', details: '任务$taskId: ${pollingState.currentInterval.inSeconds}秒');
+        logService.info('调整轮询间隔', details: '任务$taskId: ${pollingState.currentInterval.inSeconds}秒, progress=${detail.progress}%');
       } else {
-        // 其他未知状态，检查是否包含失败相关的关键词
-        final statusLower = detail.status.toLowerCase();
-        if (statusLower.contains('fail') || statusLower.contains('error') || statusLower.contains('cancel')) {
-          // 可能是失败状态，销毁任务
-          logService.error('视频生成失败（未知状态）', details: '任务$taskId: status=${detail.status}');
-          removeTask(taskId);
+        // 其他未知状态，记录日志但继续轮询
+        // CRITICAL: 即使状态未知，也要检查是否有完成或失败的迹象
+        logService.warn('未知任务状态', details: '任务$taskId: status=${detail.status}, progress=${detail.progress}, completedAt=${detail.completedAt}, error=${detail.error}');
+        
+        // 如果进度是100%但没有视频URL，可能是失败
+        if (detail.progress >= 100 && (detail.videoUrl == null || detail.videoUrl!.isEmpty)) {
+          logService.warn('进度100%但无视频URL，可能失败', details: '任务$taskId');
+          // 继续轮询一段时间，如果还是没有URL，则标记为失败
+          // 这里不立即失败，给API一些时间返回URL
         }
       }
     } catch (e) {
       logService.error('查询视频状态失败', details: '任务$taskId: $e');
-      // 发生错误时，也增加轮询间隔，避免频繁重试
+      
+      // CRITICAL: 发生错误时，不要立即停止轮询，而是继续尝试
+      // 但增加轮询间隔，避免频繁重试导致API压力过大
       final newInterval = Duration(
         milliseconds: (pollingState.currentInterval.inMilliseconds * _backoffMultiplier).round(),
       );
       pollingState.currentInterval = newInterval > _maxPollInterval 
           ? _maxPollInterval 
           : newInterval;
+      
+      // 即使出错，也继续轮询（除非任务已被移除）
+      // 这确保网络临时故障不会导致任务丢失
     }
   }
 
@@ -1503,6 +1665,200 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     logService.info('星橙AI动漫制作 启动成功');
     logService.info('加载用户配置完成');
     _checkApiConfig();
+    
+    // 延迟检查更新（应用启动后3秒，避免阻塞启动）
+    Future.delayed(Duration(seconds: 3), () {
+      if (mounted) {
+        _checkForUpdate();
+      }
+    });
+  }
+  
+  /// 检查更新
+  Future<void> _checkForUpdate() async {
+    try {
+      final newVersion = await updateService.checkForUpdate();
+      if (newVersion != null && mounted) {
+        _showUpdateDialog(newVersion);
+      }
+    } catch (e) {
+      // 静默失败，不影响应用使用
+      print('检查更新失败: $e');
+    }
+  }
+  
+  /// 显示更新对话框
+  void _showUpdateDialog(AppVersion newVersion) {
+    showDialog(
+      context: context,
+      barrierDismissible: !newVersion.forceUpdate, // 强制更新时不能关闭
+      builder: (context) => AlertDialog(
+        backgroundColor: AnimeColors.cardBg,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Icon(Icons.system_update, color: AnimeColors.miku, size: 24),
+            SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                '发现新版本',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            if (!newVersion.forceUpdate)
+              IconButton(
+                icon: Icon(Icons.close, color: Colors.white54),
+                onPressed: () => Navigator.pop(context),
+                padding: EdgeInsets.zero,
+                constraints: BoxConstraints(),
+              ),
+          ],
+        ),
+        content: Container(
+          width: 400,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '版本 ${newVersion.version} (Build ${newVersion.buildNumber})',
+                style: TextStyle(
+                  color: AnimeColors.miku,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              SizedBox(height: 12),
+              if (newVersion.releaseNotes != null && newVersion.releaseNotes!.isNotEmpty) ...[
+                Text(
+                  '更新内容：',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                SizedBox(height: 8),
+                Container(
+                  padding: EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    newVersion.releaseNotes!,
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 13,
+                      height: 1.5,
+                    ),
+                  ),
+                ),
+                SizedBox(height: 16),
+              ],
+              if (newVersion.forceUpdate)
+                Container(
+                  padding: EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: Colors.red.withOpacity(0.5)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.warning, color: Colors.red[300], size: 16),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '此版本为强制更新，必须更新后才能继续使用',
+                          style: TextStyle(
+                            color: Colors.red[300],
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          if (!newVersion.forceUpdate)
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('稍后更新', style: TextStyle(color: Colors.white54)),
+            ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context); // 先关闭对话框
+              try {
+                // 显示下载进度对话框
+                showDialog(
+                  context: context,
+                  barrierDismissible: false,
+                  builder: (context) => AlertDialog(
+                    backgroundColor: AnimeColors.cardBg,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                    content: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircularProgressIndicator(color: AnimeColors.miku),
+                        SizedBox(height: 20),
+                        Text(
+                          '正在下载更新...',
+                          style: TextStyle(color: Colors.white70, fontSize: 14),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+                
+                // 下载并安装
+                await updateService.downloadAndInstall(newVersion);
+                
+                // 关闭下载对话框
+                if (mounted) Navigator.pop(context);
+                
+                // 显示成功提示
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('更新已下载，请按照提示完成安装'),
+                      backgroundColor: AnimeColors.miku,
+                      duration: Duration(seconds: 5),
+                    ),
+                  );
+                }
+              } catch (e) {
+                // 关闭下载对话框
+                if (mounted) Navigator.pop(context);
+                
+                // 显示错误提示
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('更新失败: $e'),
+                      backgroundColor: Colors.red,
+                      duration: Duration(seconds: 5),
+                    ),
+                  );
+                }
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AnimeColors.miku,
+              foregroundColor: Colors.white,
+            ),
+            child: Text('立即更新'),
+          ),
+        ],
+      ),
+    );
   }
   
   void _checkApiConfig() {
@@ -12063,8 +12419,8 @@ class _DrawingSpaceWidgetState extends State<DrawingSpaceWidget> {
                         ),
                         SizedBox(width: 8),
                         IconButton(
-                          icon: Icon(Icons.add_circle_outline, color: _batchCount < 10 ? AnimeColors.miku : Colors.white24),
-                          onPressed: _batchCount < 10 ? () {
+                          icon: Icon(Icons.add_circle_outline, color: _batchCount < 50 ? AnimeColors.miku : Colors.white24),
+                          onPressed: _batchCount < 50 ? () {
                             setState(() => _batchCount++);
                             logService.action('调整批量生成数量', details: '$_batchCount');
                           } : null,
@@ -12728,66 +13084,86 @@ class _VideoSpaceWidgetState extends State<VideoSpaceWidget> {
       final durationText = videoDurations[_selectedDurationIndex];
       final seconds = int.parse(durationText.replaceAll('秒', ''));
       
-      int submittedCount = 0;
-      
-      // 批量生成视频
+      // CRITICAL: 先为所有任务创建占位符，确保UI立即反馈
+      final List<String> tempTaskIds = [];
       for (int i = 0; i < _batchCount; i++) {
-        try {
-          // 如果选择的是素材库图片，使用characterUrl传递图片名称
-          // 否则使用inputReference传递图片文件
-          String? characterUrl;
-          File? inputReference;
-          
-          if (_selectedImagePath != null) {
-            if (_isFromMaterialLibrary && _selectedMaterialName != null) {
-              // 来自素材库，使用characterUrl传递名称
-              characterUrl = _selectedMaterialName;
-              print('[VideoSpace] 使用素材库图片名称: $characterUrl');
-            } else {
-              // 本地文件，使用inputReference传递文件
-              inputReference = File(_selectedImagePath!);
-              print('[VideoSpace] 使用本地图片文件: ${inputReference.path}');
-            }
-          }
-          
-          final response = await apiService.createVideo(
-            model: apiConfigManager.videoModel,
-            prompt: _promptController.text,
-            size: '${selectedSize.width}x${selectedSize.height}',
-            seconds: seconds,
-            inputReference: inputReference,
-            characterUrl: characterUrl, // 如果来自素材库，传递图片名称
-          );
-          
-          // CRITICAL: 立即添加任务到列表，确保UI实时反馈
-          // addTask内部会立即调用notifyListeners，确保右边视频区域立即显示新任务
-          videoTaskManager.addTask(
-            response.id,
-            prompt: _promptController.text,
-            imagePath: _selectedImagePath,
-          );
-          submittedCount++;
-          
-          logService.info('视频生成任务已提交 ${i + 1}/$_batchCount', details: '任务ID: ${response.id}');
-        } catch (e) {
-          logService.error('提交视频任务失败', details: e.toString());
-        }
-      }
-      
-      if (submittedCount == 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('所有视频任务提交失败'), backgroundColor: AnimeColors.sakura),
+        final tempId = 'temp_${DateTime.now().millisecondsSinceEpoch}_$i';
+        tempTaskIds.add(tempId);
+        // 立即添加占位符任务，确保右边视频区域立即显示
+        videoTaskManager.addTask(
+          tempId,
+          prompt: _promptController.text,
+          imagePath: _selectedImagePath,
         );
-        return;
       }
       
+      // 显示成功提示（占位符已创建）
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('已提交 $submittedCount 个视频生成任务'),
+          content: Text('已提交 $_batchCount 个视频生成任务，正在后台处理...'),
           backgroundColor: AnimeColors.miku,
           duration: Duration(seconds: 3),
         ),
       );
+      
+      // 批量生成视频（异步执行，不阻塞UI）
+      int failCount = 0;
+      
+      for (int i = 0; i < _batchCount; i++) {
+        final tempTaskId = tempTaskIds[i];
+        final taskIndex = i;
+        // 异步执行，不阻塞UI
+        Future(() async {
+          try {
+            // 如果选择的是素材库图片，使用characterUrl传递图片名称
+            // 否则使用inputReference传递图片文件
+            String? characterUrl;
+            File? inputReference;
+            
+            if (_selectedImagePath != null) {
+              if (_isFromMaterialLibrary && _selectedMaterialName != null) {
+                // 来自素材库，使用characterUrl传递名称
+                characterUrl = _selectedMaterialName;
+                print('[VideoSpace] 使用素材库图片名称: $characterUrl');
+              } else {
+                // 本地文件，使用inputReference传递文件
+                inputReference = File(_selectedImagePath!);
+                print('[VideoSpace] 使用本地图片文件: ${inputReference.path}');
+              }
+            }
+            
+            final response = await apiService.createVideo(
+              model: apiConfigManager.videoModel,
+              prompt: _promptController.text,
+              size: '${selectedSize.width}x${selectedSize.height}',
+              seconds: seconds,
+              inputReference: inputReference,
+              characterUrl: characterUrl, // 如果来自素材库，传递图片名称
+            );
+            
+            // CRITICAL: 用真实任务ID替换临时占位符
+            videoTaskManager.replaceTaskId(tempTaskId, response.id);
+            
+            logService.info('视频生成任务已提交 ${taskIndex + 1}/$_batchCount', details: '任务ID: ${response.id}');
+          } catch (e) {
+            logService.error('提交视频任务失败', details: e.toString());
+            // 如果失败，移除占位符并标记为失败
+            videoTaskManager.removeTask(tempTaskId, isFailed: true);
+            failCount++;
+            
+            // 如果所有任务都失败了，显示错误提示
+            if (failCount == _batchCount && mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('所有视频任务提交失败'),
+                  backgroundColor: AnimeColors.sakura,
+                  duration: Duration(seconds: 5),
+                ),
+              );
+            }
+          }
+        });
+      }
       
       // 使用全局任务管理器启动轮询
       videoTaskManager.startPolling();
@@ -13160,8 +13536,8 @@ class _VideoSpaceWidgetState extends State<VideoSpaceWidget> {
                                   ),
                                   SizedBox(width: 8),
                                   IconButton(
-                                    icon: Icon(Icons.add_circle_outline, color: _batchCount < 10 ? AnimeColors.miku : Colors.white24),
-                                    onPressed: _batchCount < 10 ? () {
+                                    icon: Icon(Icons.add_circle_outline, color: _batchCount < 50 ? AnimeColors.miku : Colors.white24),
+                                    onPressed: _batchCount < 50 ? () {
                                       setState(() => _batchCount++);
                                       logService.action('调整批量生成数量', details: '$_batchCount');
                                     } : null,
@@ -13179,18 +13555,23 @@ class _VideoSpaceWidgetState extends State<VideoSpaceWidget> {
                     ),
                   ),
                   SizedBox(height: 20),
-                  // 生成按钮（统一设计，与绘图空间按钮样式一致）
+                  // 生成按钮（统一设计，与绘图空间按钮样式一致，增强按压效果）
                   SizedBox(
                     width: double.infinity,
                     height: 52,
                     child: Material(
                       color: Colors.transparent,
+                      elevation: 0,
                       child: InkWell(
                         onTap: _generateVideo,
                         borderRadius: BorderRadius.circular(26), // 更圆润的圆角（高度的一半）
-                        // 增强按压效果
-                        splashColor: Colors.white.withOpacity(0.3),
-                        highlightColor: Colors.white.withOpacity(0.15),
+                        // 增强按压效果：更明显的涟漪和高亮
+                        splashColor: Colors.white.withOpacity(0.4),
+                        highlightColor: Colors.white.withOpacity(0.2),
+                        // 增加按压时的视觉反馈
+                        onTapDown: (_) {},
+                        onTapUp: (_) {},
+                        onTapCancel: () {},
                         child: Container(
                           decoration: BoxDecoration(
                             gradient: LinearGradient(colors: [AnimeColors.miku, AnimeColors.purple]), // 统一渐变：左侧青蓝色，右侧淡紫色
@@ -13632,6 +14013,85 @@ class _VideoCardWidgetState extends State<_VideoCardWidget> {
 }
 
 /// 正在生成的视频卡片 Widget（独立组件）
+/// 失败视频卡片组件
+class _FailedVideoCardWidget extends StatelessWidget {
+  final Map<String, dynamic> task;
+  
+  const _FailedVideoCardWidget({required this.task});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.red.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.red.withOpacity(0.5), width: 2),
+      ),
+      child: Stack(
+        children: [
+          Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.error_outline,
+                  size: 48,
+                  color: Colors.red[300],
+                ),
+                SizedBox(height: 12),
+                Text(
+                  '生成失败',
+                  style: TextStyle(
+                    color: Colors.red[300],
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                SizedBox(height: 8),
+                if (task['prompt'] != null)
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 12),
+                    child: Text(
+                      task['prompt'] as String,
+                      style: TextStyle(
+                        color: Colors.white54,
+                        fontSize: 11,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Positioned(
+            top: 8,
+            right: 8,
+            child: InkWell(
+              onTap: () {
+                videoTaskManager.removeFailedTask(task['id'] as String);
+                logService.action('删除失败视频占位符', details: task['id']);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('已删除失败占位符'), backgroundColor: AnimeColors.miku),
+                );
+              },
+              child: Container(
+                padding: EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.close, color: Colors.white, size: 16),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _GeneratingVideoCardWidget extends StatelessWidget {
   final int progress;
   final String status;
@@ -13753,15 +14213,24 @@ class _VideoListWidget extends StatelessWidget {
       color: AnimeColors.orangeAccent,
       expanded: true,
       actionButton: AnimatedBuilder(
-        animation: Listenable.merge([generatedMediaManager]),
+        animation: Listenable.merge([videoTaskManager, generatedMediaManager]),
         builder: (context, _) {
           final videos = generatedMediaManager.generatedVideos;
-          if (videos.isEmpty) return SizedBox.shrink();
+          final activeTasks = videoTaskManager.activeTasks;
+          final failedTasks = videoTaskManager.failedTasks;
+          
+          // 如果有任何视频（已完成的、正在生成的、或失败的），显示删除按钮
+          if (videos.isEmpty && activeTasks.isEmpty && failedTasks.isEmpty) {
+            return SizedBox.shrink();
+          }
+          
           return IconButton(
             icon: Icon(Icons.clear_all, color: AnimeColors.sakura, size: 20),
             tooltip: '清空所有视频',
             onPressed: () {
               generatedMediaManager.clearVideos();
+              videoTaskManager.removeAllTasks();
+              videoTaskManager.removeAllFailedTasks();
               logService.action('清空所有生成视频');
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(content: Text('已清空所有视频'), backgroundColor: AnimeColors.miku),
@@ -13774,9 +14243,10 @@ class _VideoListWidget extends StatelessWidget {
         animation: Listenable.merge([videoTaskManager, generatedMediaManager]),
         builder: (context, _) {
           final activeTasks = videoTaskManager.activeTasks;
+          final failedTasks = videoTaskManager.failedTasks;
           final generatedVideos = generatedMediaManager.generatedVideos;
           
-          if (generatedVideos.isEmpty && activeTasks.isEmpty) {
+          if (generatedVideos.isEmpty && activeTasks.isEmpty && failedTasks.isEmpty) {
             return Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -13792,7 +14262,7 @@ class _VideoListWidget extends StatelessWidget {
           return LayoutBuilder(
             builder: (context, constraints) {
               final crossAxisCount = constraints.maxWidth > 800 ? 3 : 2;
-              final totalItems = generatedVideos.length + activeTasks.length;
+              final totalItems = activeTasks.length + failedTasks.length + generatedVideos.length;
               
               return GridView.builder(
                 gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
@@ -13803,7 +14273,7 @@ class _VideoListWidget extends StatelessWidget {
                 ),
                 itemCount: totalItems,
                 itemBuilder: (context, index) {
-                  // 正在生成的视频任务（显示在前面）
+                  // 正在生成的视频任务（显示在最前面）
                   if (index < activeTasks.length) {
                     final task = activeTasks[index];
                     final progress = task['progress'] as int? ?? 0;
@@ -13816,8 +14286,15 @@ class _VideoListWidget extends StatelessWidget {
                     );
                   }
                   
-                  // 已完成的视频
-                  final videoIndex = index - activeTasks.length;
+                  // 失败的任务（显示在中间）
+                  final failedIndex = index - activeTasks.length;
+                  if (failedIndex < failedTasks.length) {
+                    final failedTask = failedTasks[failedIndex];
+                    return _FailedVideoCardWidget(task: failedTask);
+                  }
+                  
+                  // 已完成的视频（显示在最后）
+                  final videoIndex = index - activeTasks.length - failedTasks.length;
                   if (videoIndex < generatedVideos.length) {
                     final video = generatedVideos[videoIndex];
                     return _VideoCardWidget(video: video);

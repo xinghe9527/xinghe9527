@@ -2303,8 +2303,9 @@ class AutoModeProvider extends ChangeNotifier {
             
             // 抛出异常以退出轮询循环
             throw ApiException(errorMsg);
-          } else if (detail.status == 'processing' || detail.status == 'pending' || detail.status == 'queued') {
+          } else if (detail.status == 'processing' || detail.status == 'pending' || detail.status == 'queued' || detail.status == 'in_progress') {
             // CRITICAL: 处理中状态，使用API返回的progress字段实时更新进度
+            // 支持多种状态：processing, pending, queued, in_progress
             hasProgressInfo = true; // 标记已收到进度信息
             
             if (sceneIndex < project.scenes.length) {
@@ -2322,7 +2323,7 @@ class AutoModeProvider extends ChangeNotifier {
                 // 状态是queued但progress > 0，说明官网已经开始处理，只是状态还没更新
                 generationStatus = 'processing'; // 更新为处理中，以便显示进度
                 print('[AutoModeProvider] 场景 ${sceneIndex + 1} 状态为queued但progress=${apiProgress}%，更新为processing状态');
-              } else if (detail.status == 'processing' || detail.status == 'pending') {
+              } else if (detail.status == 'processing' || detail.status == 'pending' || detail.status == 'in_progress') {
                 generationStatus = 'processing'; // 处理中
               } else {
                 generationStatus = 'processing'; // 默认
@@ -2339,7 +2340,7 @@ class AutoModeProvider extends ChangeNotifier {
               // CRITICAL: 每次轮询后都通知UI更新，确保实时显示官网进度
               _safeNotifyListeners();
               
-              print('[AutoModeProvider] 场景 ${sceneIndex + 1} 视频生成进度: ${apiProgress}% (status: ${detail.status}, generationStatus: $generationStatus)');
+              print('[AutoModeProvider] 场景 ${sceneIndex + 1} 视频生成进度: ${apiProgress}% (status: ${detail.status}, generationStatus: $generationStatus, normalizedProgress: $normalizedProgress)');
             }
           } else {
             // 其他未知状态，检查是否是失败相关的状态
@@ -2365,14 +2366,20 @@ class AutoModeProvider extends ChangeNotifier {
               throw ApiException(errorMsg);
             } else {
               // 其他未知状态，继续轮询但记录日志
-              print('[AutoModeProvider] 场景 ${sceneIndex + 1} 视频状态未知: ${detail.status}, 继续轮询...');
+              // CRITICAL: 即使状态未知，如果有进度信息，也要更新进度
+              print('[AutoModeProvider] 场景 ${sceneIndex + 1} 视频状态未知: ${detail.status}, progress=${detail.progress}, 继续轮询...');
               if (sceneIndex < project.scenes.length) {
+                final apiProgress = detail.progress.clamp(0, 100);
+                final normalizedProgress = apiProgress / 100.0;
+                
                 project.scenes[sceneIndex] = project.scenes[sceneIndex].copyWith(
                   status: SceneStatus.processing,
                   generationStatus: 'processing',
+                  videoGenerationProgress: normalizedProgress.clamp(0.0, 1.0), // CRITICAL: 更新进度值
                   errorMessage: null,
                 );
                 _safeNotifyListeners();
+                print('[AutoModeProvider] 场景 ${sceneIndex + 1} 已更新进度: ${apiProgress}% (normalized: $normalizedProgress)');
               }
             }
           }
