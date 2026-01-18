@@ -23,11 +23,12 @@ class SoraApiService {
   /// 返回上传后的公网 URL
   Future<String> uploadVideoToOss(File videoFile) async {
     try {
-      print('[SoraApiService] 开始上传视频到 Supabase Storage');
-      print('[SoraApiService] 视频文件: ${videoFile.path}');
+      print('🚀 [Supabase Upload] 开始上传视频');
+      print('📁 [Upload File]: ${videoFile.path}');
       
       // 检查文件是否存在
       if (!await videoFile.exists()) {
+        print('❌ [Upload Error] 视频文件不存在: ${videoFile.path}');
         throw Exception('视频文件不存在: ${videoFile.path}');
       }
       
@@ -39,14 +40,14 @@ class SoraApiService {
       final randomStr = DateTime.now().microsecondsSinceEpoch.toString().substring(10);
       final filePath = 'characters/video_${timestamp}_$randomStr.mp4';
       
-      print('[SoraApiService] 文件路径: $filePath');
-      print('[SoraApiService] 存储桶: xinghe_uploads');
+      print('📦 [Upload Info] 存储桶: xinghe_uploads, 文件路径: $filePath');
       
       // 读取文件内容
       final fileBytes = await videoFile.readAsBytes();
-      print('[SoraApiService] 文件大小: ${fileBytes.length} 字节');
+      print('📦 [Upload Info] 文件大小: ${fileBytes.length} 字节 (${(fileBytes.length / 1024 / 1024).toStringAsFixed(2)} MB)');
       
       // 上传文件到 Supabase Storage
+      print('🚀 [Supabase Upload] 开始上传到存储桶...');
       final response = await supabase.storage
           .from('xinghe_uploads')
           .uploadBinary(
@@ -58,18 +59,20 @@ class SoraApiService {
             ),
           );
       
-      print('[SoraApiService] 上传响应: $response');
+      print('✅ [Supabase Response] 上传响应: $response');
       
       // 获取文件的公共 URL
       final publicUrl = supabase.storage
           .from('xinghe_uploads')
           .getPublicUrl(filePath);
       
-      print('[SoraApiService] 视频上传成功: $publicUrl');
+      print('✅ [Upload Success] 视频上传成功!');
+      print('🔗 [Public URL]: $publicUrl');
       return publicUrl;
-    } catch (e) {
-      print('[SoraApiService] 上传视频到 Supabase Storage 失败: $e');
-      print('[SoraApiService] 异常堆栈: ${StackTrace.current}');
+    } catch (e, stackTrace) {
+      print('❌ [Upload Error] 上传视频到 Supabase Storage 失败');
+      print('❌ [Error Details]: $e');
+      print('📍 [Stack Trace]: $stackTrace');
       rethrow;
     }
   }
@@ -80,30 +83,23 @@ class SoraApiService {
   /// 返回角色创建响应数据
   Future<Map<String, dynamic>> createCharacter(String videoUrl) async {
     try {
-      print('[SoraApiService] 开始创建角色');
-      print('[SoraApiService] 视频 URL: $videoUrl');
+      print('');
+      print('═══════════════════════════════════════════════════════');
+      print('🚀 [API Request] 创建角色请求开始');
+      print('═══════════════════════════════════════════════════════');
       
       // 构建请求 URL
-      // 参考视频生成 API 的格式：${baseUrl}/videos（baseUrl 是 https://xxx/v1）
-      // 尝试不同的路径格式：
-      // 1. ${baseUrl}/sora/v1/characters -> https://xxx/v1/sora/v1/characters (可能重复)
-      // 2. ${baseUrl}/sora/characters -> https://xxx/v1/sora/characters (当前尝试，返回 404)
-      // 3. 去掉 baseUrl 的 /v1，然后拼接 /sora/v1/characters -> https://xxx/sora/v1/characters
       String endpoint;
       if (baseUrl.endsWith('/v1')) {
-        // baseUrl 是 https://xxx/v1，去掉 /v1，然后拼接 /sora/v1/characters
         final baseWithoutV1 = baseUrl.substring(0, baseUrl.length - 3);
         endpoint = '$baseWithoutV1/sora/v1/characters';
       } else if (baseUrl.endsWith('/v1/')) {
-        // baseUrl 是 https://xxx/v1/，去掉 /v1/，然后拼接 /sora/v1/characters
         final baseWithoutV1 = baseUrl.substring(0, baseUrl.length - 4);
         endpoint = '$baseWithoutV1/sora/v1/characters';
       } else {
-        // baseUrl 不包含 /v1，直接拼接 /sora/v1/characters
         endpoint = '$baseUrl/sora/v1/characters';
       }
-      print('[SoraApiService] BaseUrl: $baseUrl');
-      print('[SoraApiService] Endpoint: $endpoint');
+      
       final apiUrl = Uri.parse(endpoint);
       
       // 构建请求体
@@ -112,12 +108,17 @@ class SoraApiService {
         'timestamps': '1,3',
       };
       
-      print('[SoraApiService] 请求 URL: $apiUrl');
-      print('[SoraApiService] 请求体: $body');
+      // 请求拦截日志 - 在发送前打印
+      print('🚀 [API Request] URL: $apiUrl');
+      print('🔑 [API Request] BaseUrl: $baseUrl');
+      print('🔑 [API Request] Endpoint: $endpoint');
+      print('🔑 [API Request] Headers: {Content-Type: application/json, Authorization: Bearer ${apiKey.substring(0, 10)}...}');
+      print('📦 [API Payload]: ${jsonEncode(body)}');
+      print('⏱️  [API Request] 超时设置: 8 分钟');
+      print('─────────────────────────────────────────────────────');
       
       // 发送 POST 请求
-      // 根据 API 文档，Authorization 格式为: Bearer {token}
-      // 注意：创建角色 API 可能需要较长时间（最多 8 分钟），所以设置超时为 8 分钟
+      print('🌐 [API Request] 正在发送 HTTP POST 请求...');
       final response = await http.post(
         apiUrl,
         headers: {
@@ -126,22 +127,31 @@ class SoraApiService {
         },
         body: jsonEncode(body),
       ).timeout(
-        const Duration(minutes: 8), // 8 分钟超时，因为创建角色可能需要较长时间
+        const Duration(minutes: 8),
         onTimeout: () {
+          print('❌ [API Error] 请求超时（8分钟）');
           throw Exception('创建角色请求超时（8分钟），请检查网络连接或稍后重试');
         },
       );
       
-      print('[SoraApiService] 响应状态码: ${response.statusCode}');
-      print('[SoraApiService] 响应体: ${response.body}');
-      print('[SoraApiService] 响应体长度: ${response.body.length}');
+      // 响应拦截日志 - 第一时间打印
+      print('');
+      print('─────────────────────────────────────────────────────');
+      print('✅ [API Response] 收到服务器响应');
+      print('✅ [API Response] Code: ${response.statusCode}');
+      print('✅ [API Response] Headers: ${response.headers}');
+      print('📄 [API Body Raw] 长度: ${response.body.length} 字符');
+      print('📄 [API Body Raw]: ${response.body}');
+      print('─────────────────────────────────────────────────────');
       
+      // 处理响应
       if (response.statusCode == 200 || response.statusCode == 201) {
-        // 检查响应体是否为空
         final responseBody = response.body.trim();
+        
+        // 检查空响应
         if (responseBody.isEmpty) {
-          // 如果响应体为空，返回一个默认的成功响应
-          print('[SoraApiService] 警告: API 返回了空响应，使用默认响应');
+          print('⚠️  [API Warning] API 返回了空响应体');
+          print('✅ [API Success] 使用默认响应（假设创建成功）');
           return {
             'id': 'character_${DateTime.now().millisecondsSinceEpoch}',
             'status': 'success',
@@ -149,52 +159,93 @@ class SoraApiService {
           };
         }
         
+        // 解析阶段日志
+        print('');
+        print('🔍 [Parsing] 开始解析 JSON...');
+        print('🔍 [Parsing] 原始数据长度: ${responseBody.length}');
+        
         try {
           final responseData = jsonDecode(responseBody) as Map<String, dynamic>;
-          print('[SoraApiService] 角色创建成功');
-          print('[SoraApiService] 解析后的数据: $responseData');
           
-          // 验证必要字段是否存在
-          if (!responseData.containsKey('username') && !responseData.containsKey('id') && !responseData.containsKey('characterCode')) {
-            print('[SoraApiService] 警告: 响应数据缺少必要字段');
-            print('[SoraApiService] 可用字段: ${responseData.keys.toList()}');
-            // 如果缺少必要字段，尝试从其他字段中提取
+          print('✅ [Parsing] JSON 解析成功!');
+          print('✅ [Parsing] 解析后的数据类型: ${responseData.runtimeType}');
+          print('✅ [Parsing] 数据字段: ${responseData.keys.toList()}');
+          print('📊 [Parsing] 完整数据: $responseData');
+          
+          // 验证必要字段
+          if (!responseData.containsKey('username') && 
+              !responseData.containsKey('id') && 
+              !responseData.containsKey('characterCode')) {
+            print('⚠️  [Parsing] 警告: 响应数据缺少预期字段 (username/id/characterCode)');
+            print('⚠️  [Parsing] 可用字段: ${responseData.keys.toList()}');
+            
+            // 尝试从 data 字段提取
             if (responseData.containsKey('data')) {
+              print('🔍 [Parsing] 尝试从 data 字段提取信息...');
               final data = responseData['data'];
               if (data is Map) {
                 responseData.addAll(Map<String, dynamic>.from(data));
+                print('✅ [Parsing] 已合并 data 字段数据');
               }
             }
           }
           
+          print('✅ [API Success] 角色创建成功!');
+          print('═══════════════════════════════════════════════════════');
+          print('');
           return responseData;
-        } catch (e) {
+          
+        } catch (e, stackTrace) {
+          print('❌ [Parsing Error] JSON 格式错误!');
+          print('❌ [Parsing Error] 错误类型: ${e.runtimeType}');
+          print('❌ [Parsing Error] 错误详情: $e');
+          print('❌ [Parsing Error] 原始响应（前500字符）: ${responseBody.substring(0, responseBody.length > 500 ? 500 : responseBody.length)}');
+          print('📍 [Parsing Error] 堆栈跟踪: $stackTrace');
           throw Exception(
             '创建角色失败: JSON 解析错误\n'
-            '响应体: ${responseBody.length > 200 ? responseBody.substring(0, 200) + "..." : responseBody}\n'
-            '错误: $e'
+            '错误: $e\n'
+            '响应体预览: ${responseBody.length > 200 ? responseBody.substring(0, 200) + "..." : responseBody}'
           );
         }
+        
       } else {
-        // 非成功状态码，尝试解析错误信息
-        String errorMessage = '创建角色失败: ${response.statusCode}';
+        // 非成功状态码
+        print('❌ [API Error] 非成功状态码: ${response.statusCode}');
+        
+        String errorMessage = '创建角色失败: HTTP ${response.statusCode}';
+        
         if (response.body.isNotEmpty) {
+          print('🔍 [Error Parsing] 尝试解析错误信息...');
           try {
             final errorData = jsonDecode(response.body);
+            print('✅ [Error Parsing] 错误响应解析成功: $errorData');
+            
             if (errorData is Map && errorData.containsKey('message')) {
               errorMessage += '\n错误信息: ${errorData['message']}';
+            } else if (errorData is Map && errorData.containsKey('error')) {
+              errorMessage += '\n错误信息: ${errorData['error']}';
             } else {
               errorMessage += '\n响应: ${response.body}';
             }
           } catch (e) {
-            errorMessage += '\n响应: ${response.body}';
+            print('❌ [Error Parsing] 无法解析错误响应: $e');
+            errorMessage += '\n原始响应: ${response.body}';
           }
         }
+        
+        print('❌ [API Error] $errorMessage');
+        print('═══════════════════════════════════════════════════════');
         throw Exception(errorMessage);
       }
-    } catch (e) {
-      print('[SoraApiService] 创建角色失败: $e');
-      print('[SoraApiService] 异常堆栈: ${StackTrace.current}');
+      
+    } catch (e, stackTrace) {
+      print('');
+      print('❌❌❌ [致命错误] 创建角色过程中发生异常 ❌❌❌');
+      print('❌ [Error Type]: ${e.runtimeType}');
+      print('❌ [Error Details]: $e');
+      print('📍 [Stack Trace]: $stackTrace');
+      print('═══════════════════════════════════════════════════════');
+      print('');
       rethrow;
     }
   }

@@ -93,8 +93,10 @@ class FFmpegService {
               await tempInputFile.delete();
               print('[FFmpegService] 已清理临时输入文件');
             }
-          } catch (e) {
-            print('[FFmpegService] 清理临时输入文件失败: $e');
+          } catch (e, stackTrace) {
+            print('❌ [CRITICAL ERROR CAUGHT] 清理临时输入文件失败');
+            print('❌ [Error Details]: $e');
+            print('📍 [Stack Trace]: $stackTrace');
           }
           
           return outputFile;
@@ -131,9 +133,10 @@ class FFmpegService {
           'stdout: ${result.stdout}'
         );
       }
-    } catch (e) {
-      print('[FFmpegService] 转换过程发生异常: $e');
-      print('[FFmpegService] 异常堆栈: ${StackTrace.current}');
+    } catch (e, stackTrace) {
+      print('❌ [CRITICAL ERROR CAUGHT] FFmpeg 转换过程发生异常');
+      print('❌ [Error Details]: $e');
+      print('📍 [Stack Trace]: $stackTrace');
       
       // 如果是 Process.run 的异常，可能是 FFmpeg 未找到
       if (e.toString().contains('No such file') || 
@@ -231,8 +234,10 @@ class FFmpegService {
         if (await listFile.exists()) {
           await listFile.delete();
         }
-      } catch (e) {
-        print('[FFmpegService] 清理文件列表失败: $e');
+      } catch (e, stackTrace) {
+        print('❌ [CRITICAL ERROR CAUGHT] 清理文件列表失败');
+        print('❌ [Error Details]: $e');
+        print('📍 [Stack Trace]: $stackTrace');
       }
 
       if (result.exitCode == 0) {
@@ -251,9 +256,10 @@ class FFmpegService {
           'stdout: ${result.stdout}'
         );
       }
-    } catch (e) {
-      print('[FFmpegService] 合并视频失败: $e');
-      print('[FFmpegService] 异常堆栈: ${StackTrace.current}');
+    } catch (e, stackTrace) {
+      print('❌ [CRITICAL ERROR CAUGHT] FFmpeg 合并视频失败');
+      print('❌ [Error Details]: $e');
+      print('📍 [Stack Trace]: $stackTrace');
       rethrow;
     }
   }
@@ -320,8 +326,10 @@ class FFmpegService {
         print('[FFmpegService] stderr: ${result.stderr}');
         return false;
       }
-    } catch (e) {
-      print('[FFmpegService] 提取视频首帧失败: $e');
+    } catch (e, stackTrace) {
+      print('❌ [CRITICAL ERROR CAUGHT] FFmpeg 提取视频首帧失败');
+      print('❌ [Error Details]: $e');
+      print('📍 [Stack Trace]: $stackTrace');
       return false;
     }
   }
@@ -335,8 +343,10 @@ class FFmpegService {
         await videoFile.delete();
         print('[FFmpegService] 已清理临时视频文件: ${videoFile.path}');
       }
-    } catch (e) {
-      print('[FFmpegService] 清理临时文件失败: $e');
+    } catch (e, stackTrace) {
+      print('❌ [CRITICAL ERROR CAUGHT] 清理临时文件失败');
+      print('❌ [Error Details]: $e');
+      print('📍 [Stack Trace]: $stackTrace');
     }
   }
 }
@@ -386,7 +396,10 @@ Future<_FFmpegProcessResult> _runFFmpegProcess(_FFmpegProcessParams params) asyn
       stdout: result.stdout.toString(),
       stderr: result.stderr.toString(),
     );
-  } catch (e) {
+  } catch (e, stackTrace) {
+    print('❌ [CRITICAL ERROR CAUGHT] FFmpeg 进程运行失败');
+    print('❌ [Error Details]: $e');
+    print('📍 [Stack Trace]: $stackTrace');
     // 将异常转换为结果对象
     return _FFmpegProcessResult(
       exitCode: -1,

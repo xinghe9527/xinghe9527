@@ -22,7 +22,10 @@ class HeavyTaskRunner {
   static Map<String, dynamic> _parseJsonInIsolate(String jsonString) {
     try {
       return jsonDecode(jsonString) as Map<String, dynamic>;
-    } catch (e) {
+    } catch (e, stackTrace) {
+      print('❌ [CRITICAL ERROR CAUGHT] JSON 解析失败 (Isolate)');
+      print('❌ [Error Details]: $e');
+      print('📍 [Stack Trace]: $stackTrace');
       throw Exception('JSON 解析失败: $e');
     }
   }
@@ -31,7 +34,10 @@ class HeavyTaskRunner {
   static Uint8List _decodeBase64InIsolate(String base64String) {
     try {
       return base64Decode(base64String);
-    } catch (e) {
+    } catch (e, stackTrace) {
+      print('❌ [CRITICAL ERROR CAUGHT] Base64 解码失败 (Isolate)');
+      print('❌ [Error Details]: $e');
+      print('📍 [Stack Trace]: $stackTrace');
       throw Exception('Base64 解码失败: $e');
     }
   }
@@ -42,7 +48,10 @@ class HeavyTaskRunner {
       final file = File(params.filePath);
       await file.writeAsBytes(params.bytes);
       return file.path;
-    } catch (e) {
+    } catch (e, stackTrace) {
+      print('❌ [CRITICAL ERROR CAUGHT] 文件写入失败 (Isolate)');
+      print('❌ [Error Details]: $e');
+      print('📍 [Stack Trace]: $stackTrace');
       throw Exception('文件写入失败: $e');
     }
   }

@@ -161,8 +161,10 @@ class AutoModeProvider extends ChangeNotifier {
       
       _isInitialized = true;
       _safeNotifyListeners();
-    } catch (e) {
-      print('[AutoModeProvider] 初始化失败: $e');
+    } catch (e, stackTrace) {
+      print('❌ [CRITICAL ERROR CAUGHT] AutoModeProvider 初始化失败');
+      print('❌ [Error Details]: $e');
+      print('📍 [Stack Trace]: $stackTrace');
       _isInitialized = true;
     }
   }
@@ -278,8 +280,10 @@ class AutoModeProvider extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('last_active_project', projectId);
-    } catch (e) {
-      print('[AutoModeProvider] 保存最后活动项目失败: $e');
+    } catch (e, stackTrace) {
+      print('❌ [CRITICAL ERROR CAUGHT] 保存最后活动项目失败');
+      print('❌ [Error Details]: $e');
+      print('📍 [Stack Trace]: $stackTrace');
     }
   }
 
@@ -435,8 +439,10 @@ class AutoModeProvider extends ChangeNotifier {
           try {
             await _projectsBox!.delete(keyToDelete);
             print('[AutoModeProvider] ✓ 已删除混乱键: $keyToDelete');
-          } catch (e) {
-            print('[AutoModeProvider] ✗ 删除键失败: $keyToDelete, 错误: $e');
+          } catch (e, stackTrace) {
+            print('❌ [CRITICAL ERROR CAUGHT] 删除键失败: $keyToDelete');
+            print('❌ [Error Details]: $e');
+            print('📍 [Stack Trace]: $stackTrace');
           }
         }
         // 强制刷新到磁盘
@@ -446,8 +452,10 @@ class AutoModeProvider extends ChangeNotifier {
       
       print('[AutoModeProvider] ✓ 已加载 ${_projects.length} 个项目');
       _safeNotifyListeners();
-    } catch (e) {
-      print('[AutoModeProvider] 加载所有项目失败: $e');
+    } catch (e, stackTrace) {
+      print('❌ [CRITICAL ERROR CAUGHT] 加载所有项目失败');
+      print('❌ [Error Details]: $e');
+      print('📍 [Stack Trace]: $stackTrace');
     }
   }
 
@@ -467,8 +475,10 @@ class AutoModeProvider extends ChangeNotifier {
           try {
             await _projectsBox!.delete(key);
             print('[AutoModeProvider] ✓ 已删除损坏的键: $key');
-          } catch (e) {
-            print('[AutoModeProvider] ✗ 删除键失败: $key, 错误: $e');
+          } catch (e, stackTrace) {
+            print('❌ [CRITICAL ERROR CAUGHT] 删除损坏键失败: $key');
+            print('❌ [Error Details]: $e');
+            print('📍 [Stack Trace]: $stackTrace');
           }
         }
         await _projectsBox!.flush();
@@ -476,8 +486,10 @@ class AutoModeProvider extends ChangeNotifier {
       } else {
         print('[AutoModeProvider] ✓ 没有发现损坏的键');
       }
-    } catch (e) {
-      print('[AutoModeProvider] ✗ 清理失败: $e');
+    } catch (e, stackTrace) {
+      print('❌ [CRITICAL ERROR CAUGHT] 清理损坏键失败');
+      print('❌ [Error Details]: $e');
+      print('📍 [Stack Trace]: $stackTrace');
     }
   }
   
@@ -601,7 +613,16 @@ class AutoModeProvider extends ChangeNotifier {
   /// 安全的通知监听器（生命周期安全）
   void _safeNotifyListeners() {
     if (!_isDisposed && hasListeners) {
+      // 打印当前状态信息，帮助排查 UI 不更新问题
+      final project = _getCurrentProject();
+      print('📢 [UI Update] Notifying listeners');
+      print('📢 [UI State] Current Step: ${project?.currentStep ?? "无项目"}, isProcessing: ${project?.isProcessing ?? false}');
+      print('📢 [UI State] Script length: ${project?.currentScript.length ?? 0}, Scenes: ${project?.scenes.length ?? 0}');
+      print('📢 [UI State] Has listeners: $hasListeners, Is disposed: $_isDisposed');
+      
       notifyListeners();
+    } else {
+      print('⚠️ [UI Update] Skipped notification - disposed: $_isDisposed, hasListeners: $hasListeners');
     }
   }
 
@@ -651,8 +672,10 @@ class AutoModeProvider extends ChangeNotifier {
             keysToDelete.add(key.toString());
             print('[AutoModeProvider] 发现空项目: $key');
           }
-        } catch (e) {
-          print('[AutoModeProvider] 检查项目失败: $key, 错误: $e');
+        } catch (e, stackTrace) {
+          print('❌ [CRITICAL ERROR CAUGHT] 检查项目失败: $key');
+          print('❌ [Error Details]: $e');
+          print('📍 [Stack Trace]: $stackTrace');
           // 如果解析失败，也标记为删除
           keysToDelete.add(key.toString());
         }
@@ -665,8 +688,10 @@ class AutoModeProvider extends ChangeNotifier {
           try {
             await _projectsBox!.delete(key);
             print('[AutoModeProvider] ✓ 已删除: $key');
-          } catch (e) {
-            print('[AutoModeProvider] ✗ 删除失败: $key, 错误: $e');
+          } catch (e, stackTrace) {
+            print('❌ [CRITICAL ERROR CAUGHT] 删除空项目失败: $key');
+            print('❌ [Error Details]: $e');
+            print('📍 [Stack Trace]: $stackTrace');
           }
         }
         
@@ -747,8 +772,10 @@ class AutoModeProvider extends ChangeNotifier {
           try {
             await _projectsBox!.delete(key);
             print('[AutoModeProvider] ✓ 已删除: $key');
-          } catch (e) {
-            print('[AutoModeProvider] ✗ 删除失败: $key, 错误: $e');
+          } catch (e, stackTrace) {
+            print('❌ [CRITICAL ERROR CAUGHT] 删除项目键失败: $key');
+            print('❌ [Error Details]: $e');
+            print('📍 [Stack Trace]: $stackTrace');
           }
         }
         
@@ -877,9 +904,11 @@ class AutoModeProvider extends ChangeNotifier {
         // 处理修改请求，重新触发当前步骤
         await _processModification(projectId, input);
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
       project.errorMessage = e.toString();
-      print('[AutoModeProvider] 处理输入失败: $e');
+      print('❌ [CRITICAL ERROR CAUGHT] processInput 处理输入失败');
+      print('❌ [Error Details]: $e');
+      print('📍 [Stack Trace]: $stackTrace');
     } finally {
       project.isProcessing = false;
       _safeNotifyListeners();
@@ -1017,6 +1046,14 @@ class AutoModeProvider extends ChangeNotifier {
   Future<void> _generateScript(String projectId, String userInput) async {
     final project = _projects[projectId]!;
     
+    print('');
+    print('═══════════════════════════════════════════════════════');
+    print('🎬 [Script] Starting generation...');
+    print('📝 [Step: Script] 开始生成剧本');
+    print('📝 [Step Status] projectId: $projectId, userInput length: ${userInput.length}');
+    print('📝 [Step Status] 当前项目状态 - isProcessing: ${project.isProcessing}, currentScript length: ${project.currentScript.length}');
+    print('═══════════════════════════════════════════════════════');
+    
     final apiConfigManager = ApiConfigManager();
     if (!apiConfigManager.hasLlmConfig) {
       throw Exception('请先在设置中配置 LLM API');
@@ -1034,10 +1071,13 @@ class AutoModeProvider extends ChangeNotifier {
     }
 
     // 设置处理状态，立即保存
+    print('🎬 [Script] Setting isProcessing = true');
     project.isProcessing = true;
     project.generationStatus = '正在生成剧本...';
     await _saveToDisk(projectId, immediate: true);
+    _safeNotifyListeners();  // 通知 UI 进入加载状态
     
+    print('🎬 [Script] Calling API...');
     final response = await apiService.chatCompletion(
       model: apiConfigManager.llmModel,
       messages: [
@@ -1047,19 +1087,43 @@ class AutoModeProvider extends ChangeNotifier {
       temperature: 0.7,
     );
 
+    print('🎬 [Script] Received API result');
+    final scriptContent = response.choices.first.message.content;
+    print('🎬 [Script] API result length: ${scriptContent.length} characters');
+    print('🎬 [Script] API result preview: ${scriptContent.substring(0, scriptContent.length > 100 ? 100 : scriptContent.length)}...');
+    
     // 立即更新并保存（零数据丢失）
-    project.currentScript = response.choices.first.message.content;
+    print('🎬 [Script] Updating project.currentScript...');
+    project.currentScript = scriptContent;
+    print('🎬 [Script] State updated. Script content length: ${project.currentScript.length}');
+    print('🎬 [Script] Script preview: ${project.currentScript.substring(0, project.currentScript.length > 100 ? 100 : project.currentScript.length)}...');
+    
+    print('🎬 [Script] Setting isProcessing = false');
     project.isProcessing = false;
     project.generationStatus = null;
     
     // CRITICAL: 立即保存到磁盘，确保数据不丢失
+    print('🎬 [Script] Saving to disk...');
     await _saveToDisk(projectId, immediate: true);
+    
+    print('🎬 [Script] Notifying listeners...');
     _safeNotifyListeners();
+    
+    print('✅ [Step: Script] 剧本生成完成');
+    print('✅ [Step Status] 剧本长度: ${project.currentScript.length} 字符');
+    print('═══════════════════════════════════════════════════════');
+    print('');
   }
 
   /// 生成角色（针对特定项目）
   Future<void> _generateCharacters(String projectId, {String? modification}) async {
     final project = _projects[projectId]!;
+    
+    print('');
+    print('═══════════════════════════════════════════════════════');
+    print('👤 [Step: Character] 开始生成角色');
+    print('👤 [Step Status] projectId: $projectId, hasModification: ${modification != null}');
+    print('═══════════════════════════════════════════════════════');
     
     final apiConfigManager = ApiConfigManager();
     if (!apiConfigManager.hasLlmConfig) {
@@ -1122,7 +1186,10 @@ class AutoModeProvider extends ChangeNotifier {
         // 如果没有 JSON，尝试解析文本格式
         throw Exception('无法解析角色列表，请确保返回 JSON 格式');
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      print('❌ [CRITICAL ERROR CAUGHT] 解析角色列表失败');
+      print('❌ [Error Details]: $e');
+      print('📍 [Stack Trace]: $stackTrace');
       throw Exception('解析角色列表失败: $e');
     }
 
@@ -1137,6 +1204,12 @@ class AutoModeProvider extends ChangeNotifier {
   /// 生成分镜设计（针对特定项目）
   Future<void> _generateLayout(String projectId, {String? modification}) async {
     final project = _projects[projectId]!;
+    
+    print('');
+    print('═══════════════════════════════════════════════════════');
+    print('🎬 [Step: Layout] 开始生成分镜设计');
+    print('🎬 [Step Status] projectId: $projectId, hasModification: ${modification != null}');
+    print('═══════════════════════════════════════════════════════');
     
     final apiConfigManager = ApiConfigManager();
     if (!apiConfigManager.hasLlmConfig) {
@@ -1196,7 +1269,10 @@ class AutoModeProvider extends ChangeNotifier {
         // 如果没有 JSON，尝试解析文本格式
         throw Exception('无法解析分镜设计，请确保返回 JSON 格式');
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      print('❌ [CRITICAL ERROR CAUGHT] 解析分镜设计失败');
+      print('❌ [Error Details]: $e');
+      print('📍 [Stack Trace]: $stackTrace');
       throw Exception('解析分镜设计失败: $e');
     }
 
@@ -1212,6 +1288,12 @@ class AutoModeProvider extends ChangeNotifier {
   /// 生成所有图片（使用 Pool 限制并发，Isolate 处理重操作，针对特定项目）
   /// CRITICAL: 第一行必须保存状态，标记为"处理中"，防止崩溃时数据丢失
   Future<void> _generateAllImages(String projectId) async {
+    print('');
+    print('═══════════════════════════════════════════════════════');
+    print('🖼️  [Step: Image] 开始生成所有图片');
+    print('🖼️  [Step Status] projectId: $projectId');
+    print('═══════════════════════════════════════════════════════');
+    
     try {
       final project = _projects[projectId]!;
       
@@ -1519,7 +1601,10 @@ class AutoModeProvider extends ChangeNotifier {
       } else {
         throw Exception('图片生成失败：未返回图片 URL');
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      print('❌ [CRITICAL ERROR CAUGHT] 生成角色图片失败');
+      print('❌ [Error Details]: $e');
+      print('📍 [Stack Trace]: $stackTrace');
       project.characters[characterIndex] = character.copyWith(
         isGeneratingImage: false,
         imageGenerationProgress: 0.0,
@@ -1907,6 +1992,12 @@ class AutoModeProvider extends ChangeNotifier {
   /// CRITICAL: 第一行必须保存状态，标记为"处理中"，防止崩溃时数据丢失
   /// 生成所有视频（并发生成，支持错误隔离）
   Future<void> _generateAllVideos(String projectId) async {
+    print('');
+    print('═══════════════════════════════════════════════════════');
+    print('🎥 [Step: Video] 开始生成所有视频');
+    print('🎥 [Step Status] projectId: $projectId');
+    print('═══════════════════════════════════════════════════════');
+    
     final project = _projects[projectId]!;
     
     // CRITICAL: 第一行立即保存状态，标记为"处理中"
@@ -2032,6 +2123,11 @@ class AutoModeProvider extends ChangeNotifier {
       project.isProcessing = false;
       project.generationStatus = null;
       _safeNotifyListeners();
+      
+      print('✅ [Step: Video] 所有视频生成流程完成');
+      print('✅ [Step Status] 总场景数: ${project.scenes.length}');
+      print('═══════════════════════════════════════════════════════');
+      print('');
     }
   }
 
@@ -2196,8 +2292,11 @@ class AutoModeProvider extends ChangeNotifier {
             inputReferenceFile = tempFile;
             print('[AutoModeProvider] 已下载场景图片作为视频生成参考: ${tempFile.path}');
           }
-        } catch (e) {
-          print('[AutoModeProvider] 下载场景图片失败，将不使用图片参考: $e');
+        } catch (e, stackTrace) {
+          print('❌ [CRITICAL ERROR CAUGHT] 下载场景图片失败');
+          print('❌ [Error Details]: $e');
+          print('📍 [Stack Trace]: $stackTrace');
+          print('[AutoModeProvider] 将不使用图片参考');
         }
       }
       
@@ -2383,7 +2482,10 @@ class AutoModeProvider extends ChangeNotifier {
               }
             }
           }
-        } catch (e) {
+        } catch (e, stackTrace) {
+          print('❌ [CRITICAL ERROR CAUGHT] API 轮询调用失败');
+          print('❌ [Error Details]: $e');
+          print('📍 [Stack Trace]: $stackTrace');
           // API 调用失败，检查是否是明确的失败状态
           if (e is ApiException && (e.message.contains('失败') || e.message.contains('failed') || e.message.contains('error'))) {
             // CRITICAL: 明确的失败，确保状态已更新，然后抛出异常退出轮询
@@ -2547,8 +2649,10 @@ class AutoModeProvider extends ChangeNotifier {
               await file.writeAsBytes(response.bodyBytes);
               videoFile = file;
             }
-          } catch (e) {
-            print('[AutoModeProvider] 下载视频失败: $e');
+          } catch (e, stackTrace) {
+            print('❌ [CRITICAL ERROR CAUGHT] 下载视频失败（合并视频）');
+            print('❌ [Error Details]: $e');
+            print('📍 [Stack Trace]: $stackTrace');
             continue;
           }
         } else {
@@ -2614,8 +2718,10 @@ class AutoModeProvider extends ChangeNotifier {
         final base64Data = imageUrl.substring(base64Index + 7);
         try {
           imageBytes = Uint8List.fromList(base64Decode(base64Data));
-        } catch (e) {
-          print('[AutoModeProvider] Base64 解码失败: $e');
+        } catch (e, stackTrace) {
+          print('❌ [CRITICAL ERROR CAUGHT] Base64 解码失败');
+          print('❌ [Error Details]: $e');
+          print('📍 [Stack Trace]: $stackTrace');
           return null;
         }
       } else if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
@@ -2663,8 +2769,10 @@ class AutoModeProvider extends ChangeNotifier {
       await file.writeAsBytes(imageBytes);
       print('[AutoModeProvider] 角色图片已保存到本地: $filePath');
       return filePath;
-    } catch (e) {
-      print('[AutoModeProvider] 保存角色图片失败: $e');
+    } catch (e, stackTrace) {
+      print('❌ [CRITICAL ERROR CAUGHT] 保存角色图片失败');
+      print('❌ [Error Details]: $e');
+      print('📍 [Stack Trace]: $stackTrace');
       return null;
     }
   }
@@ -2721,8 +2829,10 @@ class AutoModeProvider extends ChangeNotifier {
               fileExtension = 'webp';
             }
           }
-        } catch (e) {
-          print('[AutoModeProvider] 解析base64图片数据失败: $e');
+        } catch (e, stackTrace) {
+          print('❌ [CRITICAL ERROR CAUGHT] 解析base64图片数据失败');
+          print('❌ [Error Details]: $e');
+          print('📍 [Stack Trace]: $stackTrace');
           return null;
         }
       } else {
@@ -2754,8 +2864,10 @@ class AutoModeProvider extends ChangeNotifier {
       
       print('[AutoModeProvider] 图片已保存到本地: $savedPath');
       return savedPath; // 返回绝对路径
-    } catch (e) {
-      print('[AutoModeProvider] 保存图片到本地失败: $e');
+    } catch (e, stackTrace) {
+      print('❌ [CRITICAL ERROR CAUGHT] 保存图片到本地失败');
+      print('❌ [Error Details]: $e');
+      print('📍 [Stack Trace]: $stackTrace');
       return null;
     }
   }
@@ -2790,8 +2902,10 @@ class AutoModeProvider extends ChangeNotifier {
       } else {
         print('[AutoModeProvider] 下载视频失败: ${response.statusCode}');
       }
-    } catch (e) {
-      print('[AutoModeProvider] 保存视频到本地失败: $e');
+    } catch (e, stackTrace) {
+      print('❌ [CRITICAL ERROR CAUGHT] 保存视频到本地失败');
+      print('❌ [Error Details]: $e');
+      print('📍 [Stack Trace]: $stackTrace');
     }
     return null;
   }

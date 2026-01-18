@@ -21,7 +21,10 @@ const int kDefaultTimeout = 30;
 Map<String, dynamic> _parseJsonInBackground(String jsonString) {
   try {
     return jsonDecode(jsonString) as Map<String, dynamic>;
-  } catch (e) {
+  } catch (e, stackTrace) {
+    print('❌ [CRITICAL ERROR CAUGHT] JSON 解析失败');
+    print('❌ [Error Details]: $e');
+    print('📍 [Stack Trace]: $stackTrace');
     throw Exception('JSON 解析失败: $e\nJSON 内容: ${jsonString.substring(0, jsonString.length > 200 ? 200 : jsonString.length)}...');
   }
 }
@@ -51,9 +54,11 @@ Future<T> runInBackground<T>(
     }
     
     return result;
-  } catch (e) {
+  } catch (e, stackTrace) {
     if (message != null) {
-      print('[BackgroundTask] 失败: $message - $e');
+      print('❌ [CRITICAL ERROR CAUGHT] BackgroundTask 失败: $message');
+      print('❌ [Error Details]: $e');
+      print('📍 [Stack Trace]: $stackTrace');
     }
     rethrow;
   }
@@ -1070,8 +1075,10 @@ class ApiService {
           
           imageParts.add(imagePart);
           print('成功添加参考图');
-        } catch (e) {
-          print('处理参考图失败: $e');
+        } catch (e, stackTrace) {
+          print('❌ [CRITICAL ERROR CAUGHT] 处理参考图失败');
+          print('❌ [Error Details]: $e');
+          print('📍 [Stack Trace]: $stackTrace');
           // 继续处理其他参考图
         }
         
@@ -1156,7 +1163,10 @@ class ApiService {
           throw ApiException('图片生成请求超时（5分钟）', 408, '');
         },
       );
-    } catch (e) {
+    } catch (e, stackTrace) {
+      print('❌ [CRITICAL ERROR CAUGHT] 图片生成请求失败');
+      print('❌ [Error Details]: $e');
+      print('📍 [Stack Trace]: $stackTrace');
       // 捕获网络错误、超时等
       if (e is ApiException) rethrow;
       throw ApiException(
@@ -1275,7 +1285,10 @@ class ApiService {
           200,
           response.body,
         );
-      } catch (e) {
+      } catch (e, stackTrace) {
+        print('❌ [CRITICAL ERROR CAUGHT] Gemini 图片生成响应解析失败');
+        print('❌ [Error Details]: $e');
+        print('📍 [Stack Trace]: $stackTrace');
         if (e is ApiException) rethrow;
         throw ApiException(
           'Gemini 图片生成响应解析失败: $e\n响应: ${response.body}',
@@ -1534,12 +1547,16 @@ class ApiService {
         // 确保临时文件被清理
         try {
           await ffmpegService.cleanupTempFile(videoFile);
-        } catch (e) {
-          print('清理临时文件失败: $e');
+        } catch (e, stackTrace) {
+          print('❌ [CRITICAL ERROR CAUGHT] 清理临时文件失败');
+          print('❌ [Error Details]: $e');
+          print('📍 [Stack Trace]: $stackTrace');
         }
       }
-    } catch (e) {
-      print('上传角色失败: $e');
+    } catch (e, stackTrace) {
+      print('❌ [CRITICAL ERROR CAUGHT] 上传角色失败');
+      print('❌ [Error Details]: $e');
+      print('📍 [Stack Trace]: $stackTrace');
       if (e is ApiException) rethrow;
       throw ApiException('上传角色失败: $e', 0, '');
     }
