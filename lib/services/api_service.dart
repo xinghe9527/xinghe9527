@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'ffmpeg_service.dart';
-import 'sora_api_service.dart';
+import 'api_manager.dart';
 
 // 默认超时时间（秒）
 const int kDefaultTimeout = 30;
@@ -1493,9 +1493,9 @@ class ApiService {
     }
   }
   
-  /// 上传角色图片（使用 SoraApiService 和 Supabase Storage）
+  /// 上传角色图片（使用 ApiManager 和 Supabase Storage）
   /// 
-  /// 注意：此方法现在使用 SoraApiService 来上传到 Supabase Storage 和创建角色
+  /// 注意：此方法现在使用 ApiManager 来上传到 Supabase Storage 和创建角色
   Future<UploadCharacterResponse> uploadCharacter({
     required String imagePath,
     required String name,
@@ -1512,13 +1512,9 @@ class ApiService {
         throw '图片文件不存在: $imagePath';
       }
       
-      // 导入 SoraApiService 和 FFmpegService
-      // 注意：需要在文件顶部导入这些服务
+      // 导入 ApiManager 和 FFmpegService
       final ffmpegService = FFmpegService();
-      final soraApiService = SoraApiService(
-        baseUrl: videoConfig.baseUrl,
-        apiKey: videoConfig.apiKey,
-      );
+      final apiManager = ApiManager();
       
       // 步骤1: 本地快速转换图片为视频（1-2秒）
       print('步骤1: 本地转换图片为视频...');
@@ -1527,11 +1523,11 @@ class ApiService {
       try {
         // 步骤2: 上传视频到 Supabase Storage 获取 URL
         print('步骤2: 上传视频到 Supabase Storage...');
-        final videoUrl = await soraApiService.uploadVideoToOss(videoFile);
+        final videoUrl = await apiManager.uploadVideoToOss(videoFile);
         
         // 步骤3: 使用视频URL创建角色（1-2秒）
         print('步骤3: 创建角色...');
-        final characterData = await soraApiService.createCharacter(videoUrl);
+        final characterData = await apiManager.createCharacter(videoUrl);
         
         print('角色创建成功！');
         print('角色ID: ${characterData['id']}');

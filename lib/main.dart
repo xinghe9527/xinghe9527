@@ -15,6 +15,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'services/index.dart';
 import 'services/update_service.dart';
+import 'services/api_manager.dart';
 import 'save_settings_panel.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'services/prompt_store.dart';
@@ -41,27 +42,30 @@ void main() async {
     // 并行初始化非关键组件，提高启动速度并避免阻塞
     await Future.wait([
       apiConfigManager.loadConfig().catchError((e) {
-        print('加载API配置失败: $e');
+        print('❌ [CRITICAL ERROR CAUGHT] 加载API配置失败: $e');
       }),
       themeManager.loadTheme().catchError((e) {
-        print('加载主题失败: $e');
+        print('❌ [CRITICAL ERROR CAUGHT] 加载主题失败: $e');
       }),
       generatedMediaManager.loadMedia().catchError((e) {
-        print('加载媒体失败: $e');
+        print('❌ [CRITICAL ERROR CAUGHT] 加载媒体失败: $e');
       }),
       promptStore.initialize().catchError((e) {
-        print('初始化提示词模板失败: $e');
+        print('❌ [CRITICAL ERROR CAUGHT] 初始化提示词模板失败: $e');
       }),
       videoTaskManager.loadTasks().catchError((e) {
-        print('加载视频任务失败: $e');
+        print('❌ [CRITICAL ERROR CAUGHT] 加载视频任务失败: $e');
       }),
       workspaceState.loadCharacters().catchError((e) {
-        print('加载角色失败: $e');
+        print('❌ [CRITICAL ERROR CAUGHT] 加载角色失败: $e');
       }),
     ], eagerError: false); // 即使某个失败也继续执行
+    
+    // 初始化 ApiManager（基于加载的配置）
+    _initializeApiManager();
   } catch (e, stackTrace) {
-    print('应用初始化失败: $e');
-    print('堆栈跟踪: $stackTrace');
+    print('❌ [CRITICAL ERROR CAUGHT] 应用初始化失败: $e');
+    print('📍 [Stack Trace]: $stackTrace');
     // 即使初始化失败，也继续启动应用
   }
   
@@ -82,6 +86,88 @@ void main() async {
       print('检查更新失败: $e');
     }
   });
+}
+
+// 初始化 ApiManager（根据配置管理器中的供应商选择）
+// 使用混合服务商模式，分别为 LLM、图片、视频设置 Provider
+void _initializeApiManager() {
+  try {
+    print('🔧 [App Init] 初始化 ApiManager (混合服务商模式)');
+    
+    // 获取三个独立的供应商选择
+    final llmProviderId = apiConfigManager.selectedLlmProviderId;
+    final imageProviderId = apiConfigManager.selectedImageProviderId;
+    final videoProviderId = apiConfigManager.selectedVideoProviderId;
+    
+    print('🔧 [App Init] 供应商配置:');
+    print('   - LLM: $llmProviderId');
+    print('   - Image: $imageProviderId');
+    print('   - Video: $videoProviderId');
+    
+    // 分别初始化三个 Provider
+    int initializedCount = 0;
+    
+    // 1. 初始化 LLM Provider
+    if (apiConfigManager.hasLlmConfig) {
+      try {
+        ApiManager().setLlmProvider(
+          llmProviderId,
+          baseUrl: apiConfigManager.llmBaseUrl,
+          apiKey: apiConfigManager.llmApiKey,
+        );
+        initializedCount++;
+        print('✅ [App Init] LLM Provider 初始化成功 ($llmProviderId)');
+      } catch (e) {
+        print('⚠️ [App Init] LLM Provider 初始化失败: $e');
+      }
+    } else {
+      print('⚠️ [App Init] 跳过 LLM Provider（配置不完整）');
+    }
+    
+    // 2. 初始化图片 Provider
+    if (apiConfigManager.hasImageConfig) {
+      try {
+        ApiManager().setImageProvider(
+          imageProviderId,
+          baseUrl: apiConfigManager.imageBaseUrl,
+          apiKey: apiConfigManager.imageApiKey,
+        );
+        initializedCount++;
+        print('✅ [App Init] 图片 Provider 初始化成功 ($imageProviderId)');
+      } catch (e) {
+        print('⚠️ [App Init] 图片 Provider 初始化失败: $e');
+      }
+    } else {
+      print('⚠️ [App Init] 跳过图片 Provider（配置不完整）');
+    }
+    
+    // 3. 初始化视频 Provider
+    if (apiConfigManager.hasVideoConfig) {
+      try {
+        ApiManager().setVideoProvider(
+          videoProviderId,
+          baseUrl: apiConfigManager.videoBaseUrl,
+          apiKey: apiConfigManager.videoApiKey,
+        );
+        initializedCount++;
+        print('✅ [App Init] 视频 Provider 初始化成功 ($videoProviderId)');
+      } catch (e) {
+        print('⚠️ [App Init] 视频 Provider 初始化失败: $e');
+      }
+    } else {
+      print('⚠️ [App Init] 跳过视频 Provider（配置不完整）');
+    }
+    
+    // 打印初始化摘要
+    print('✅ [App Init] ApiManager 初始化完成: $initializedCount/3 个 Provider');
+    if (initializedCount > 0) {
+      ApiManager().printConfig();
+    }
+  } catch (e, stackTrace) {
+    print('❌ [CRITICAL ERROR CAUGHT] ApiManager 初始化失败: $e');
+    print('📍 [Stack Trace]: $stackTrace');
+    // 不阻塞应用启动
+  }
 }
 
 final apiConfigManager = ApiConfigManager();
@@ -336,9 +422,39 @@ class GeneratedMediaManager extends ChangeNotifier {
   }
 
   void removeVideo(Map<String, dynamic> video) {
-    _generatedVideos.remove(video);
-    notifyListeners();
-    _saveMedia();
+    // CRITICAL: 使用唯一标识（id 或 url）来删除，而不是对象引用
+    final videoId = video['id'];
+    final videoUrl = video['url'];
+    
+    print('[GeneratedMediaManager] 🗑️ 准备删除视频:');
+    print('  - ID: $videoId');
+    print('  - URL: $videoUrl');
+    print('  - 删除前视频总数: ${_generatedVideos.length}');
+    
+    // 查找视频索引
+    int videoIndex = -1;
+    if (videoId != null) {
+      videoIndex = _generatedVideos.indexWhere((v) => v['id'] == videoId);
+    } else if (videoUrl != null) {
+      videoIndex = _generatedVideos.indexWhere((v) => v['url'] == videoUrl);
+    } else {
+      // 如果没有 id 和 url，尝试使用对象引用（兜底方案）
+      videoIndex = _generatedVideos.indexOf(video);
+    }
+    
+    if (videoIndex != -1) {
+      print('[GeneratedMediaManager] ✓ 找到视频，索引: $videoIndex');
+      _generatedVideos.removeAt(videoIndex);
+      print('[GeneratedMediaManager] ✓ 删除后视频总数: ${_generatedVideos.length}');
+      
+      notifyListeners();
+      _saveMedia();
+      
+      logService.action('删除视频', details: 'id: $videoId');
+    } else {
+      print('[GeneratedMediaManager] ✗ 未找到视频');
+      logService.warn('删除视频失败：未找到匹配的视频', details: 'id: $videoId, url: $videoUrl');
+    }
   }
 
   void clearImages() {
@@ -2535,7 +2651,9 @@ class _ProjectGalleryPageState extends State<ProjectGalleryPage> with SingleTick
       ),
       itemCount: projects.length,
       itemBuilder: (context, index) {
-        return _buildProjectCard(context, projects[index], _projects.indexOf(projects[index]));
+        final project = projects[index];
+        // CRITICAL: 传递项目对象而不是索引，避免索引不匹配问题
+        return _buildProjectCard(context, project);
       },
     );
   }
@@ -2707,7 +2825,7 @@ class _ProjectGalleryPageState extends State<ProjectGalleryPage> with SingleTick
     );
   }
 
-  Widget _buildProjectCard(BuildContext context, Map<String, dynamic> project, int index) {
+  Widget _buildProjectCard(BuildContext context, Map<String, dynamic> project) {
     final mode = project['mode'] as String? ?? 'autonomous';
     final isAutonomous = mode == 'autonomous';
     final modeColor = isAutonomous ? AnimeColors.miku : AnimeColors.purple;
@@ -2880,7 +2998,25 @@ class _ProjectGalleryPageState extends State<ProjectGalleryPage> with SingleTick
                       top: 6,
                       right: 6,
                       child: InkWell(
-                        onTap: () => _deleteProject(context, index),
+                        onTap: () {
+                          // CRITICAL: 动态查找项目在 _projects 中的索引
+                          final projectIndex = _projects.indexWhere((p) => 
+                            p['id'] == project['id'] && p['title'] == project['title']
+                          );
+                          
+                          if (projectIndex != -1) {
+                            print('[HomePage] 删除按钮点击 - 项目: ${project['title']}, 索引: $projectIndex');
+                            _deleteProject(context, projectIndex);
+                          } else {
+                            print('[HomePage] ✗ 未找到项目: ${project['title']}');
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('删除失败：未找到该项目'),
+                                backgroundColor: AnimeColors.sakura,
+                              ),
+                            );
+                          }
+                        },
                         borderRadius: BorderRadius.circular(16),
                         child: Container(
                           padding: EdgeInsets.all(isSmall ? 4 : 6),
@@ -3211,10 +3347,31 @@ class _ProjectGalleryPageState extends State<ProjectGalleryPage> with SingleTick
 
   // 删除作品
   void _deleteProject(BuildContext context, int index) {
+    // CRITICAL: 确保 index 是有效的
+    if (index < 0 || index >= _projects.length) {
+      print('[HomePage] ✗ 无效的索引: $index, 项目总数: ${_projects.length}');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('删除失败：项目索引无效'),
+          backgroundColor: AnimeColors.sakura,
+        ),
+      );
+      return;
+    }
+    
     final project = _projects[index];
     final projectId = project['id'] as String?;
     final projectMode = project['mode'] as String? ?? 'autonomous';
     final isAutoMode = projectMode == 'script';
+    final projectName = project['title'] as String;
+    
+    // 记录删除前的项目信息（用于调试）
+    print('[HomePage] 准备删除项目:');
+    print('  - 索引: $index');
+    print('  - 名称: $projectName');
+    print('  - ID: $projectId');
+    print('  - 模式: $projectMode');
+    print('  - 当前项目总数: ${_projects.length}');
     
     showDialog(
       context: context,
@@ -3232,7 +3389,7 @@ class _ProjectGalleryPageState extends State<ProjectGalleryPage> with SingleTick
           ],
         ),
         content: Text(
-          '确认彻底删除该作品吗？此操作不可恢复。\n\n作品名称: "${project['title']}"',
+          '确认彻底删除该作品吗？此操作不可恢复。\n\n作品名称: "$projectName"',
           style: TextStyle(color: Colors.white70, height: 1.5),
         ),
         actions: [
@@ -3245,7 +3402,7 @@ class _ProjectGalleryPageState extends State<ProjectGalleryPage> with SingleTick
               Navigator.pop(dialogContext);
               
               try {
-                final projectName = project['title'] as String;
+                print('[HomePage] 🗑️ 开始删除项目: $projectName (索引: $index)');
                 logService.action('删除作品', details: projectName);
                 
                 // CRITICAL: 根据模式选择删除方式
@@ -3256,22 +3413,37 @@ class _ProjectGalleryPageState extends State<ProjectGalleryPage> with SingleTick
                   await autoModeProvider.deleteProject(projectId);
                   print('[HomePage] ✓ 已从 AutoModeProvider 删除项目: $projectId');
                 } else {
+                  print('[HomePage] 手动模式，准备从 SharedPreferences 删除');
                   // 手动模式：从 SharedPreferences 删除
-                  // 手动模式项目存储在 SharedPreferences 的 'projects' 键中
                   // 删除操作已经在 _saveProjects() 中处理（通过更新列表）
                 }
                 
-                // 从本地列表删除
-                setState(() {
-                  _projects.removeAt(index);
-                });
+                // CRITICAL: 从本地列表删除并强制刷新 UI
+                if (mounted) {
+                  setState(() {
+                    print('[HomePage] 删除前列表长度: ${_projects.length}');
+                    _projects.removeAt(index);
+                    print('[HomePage] 删除后列表长度: ${_projects.length}');
+                    print('[HomePage] ✓ 已从本地列表删除项目（索引: $index）');
+                  });
+                  
+                  // 立即再次调用 setState 确保 UI 完全刷新
+                  await Future.delayed(Duration(milliseconds: 50));
+                  if (mounted) {
+                    setState(() {
+                      print('[HomePage] 📢 强制刷新 UI，当前项目数: ${_projects.length}');
+                    });
+                  }
+                }
                 
                 // CRITICAL: 保存更新后的列表（手动模式需要，自动模式列表会从 Provider 重新加载）
                 await _saveProjects();
+                print('[HomePage] ✓ 项目列表已保存到 SharedPreferences');
                 
                 // CRITICAL: 如果是自动模式，重新加载项目列表以确保 UI 同步
                 if (isAutoMode) {
                   await _loadProjects();
+                  print('[HomePage] ✓ 已重新加载项目列表（自动模式）');
                 }
                 
                 logService.info('作品已删除', details: projectName);
@@ -3279,14 +3451,17 @@ class _ProjectGalleryPageState extends State<ProjectGalleryPage> with SingleTick
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text('✓ 作品已永久删除'),
+                      content: Text('✓ 作品 "$projectName" 已永久删除'),
                       backgroundColor: Colors.green,
                       duration: Duration(seconds: 2),
                     ),
                   );
                 }
-              } catch (e) {
-                print('[HomePage] ✗ 删除项目失败: $e');
+                
+                print('[HomePage] ✅ 删除操作完成，最终项目数: ${_projects.length}');
+              } catch (e, stackTrace) {
+                print('[HomePage] ❌ [CRITICAL ERROR CAUGHT] 删除项目失败: $e');
+                print('[HomePage] 📍 [Stack Trace]: $stackTrace');
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
@@ -10896,20 +11071,20 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> with SingleTickerProv
   late TabController _tabController;
   
   // LLM 配置
-  final TextEditingController _llmApiController = TextEditingController();
-  final TextEditingController _llmUrlController = TextEditingController();
+  final TextEditingController _llmApiKeyController = TextEditingController();
+  final TextEditingController _llmBaseUrlController = TextEditingController();
   late String _selectedLlmModel;
   LlmPlatform _selectedLlmPlatform = LlmPlatform.geeknow;
 
   // 图片配置
-  final TextEditingController _imageApiController = TextEditingController();
-  final TextEditingController _imageUrlController = TextEditingController();
+  final TextEditingController _imageApiKeyController = TextEditingController();
+  final TextEditingController _imageBaseUrlController = TextEditingController();
   late String _selectedImageModel;
   ImagePlatform _selectedImagePlatform = ImagePlatform.geeknow;
 
   // 视频配置
-  final TextEditingController _videoApiController = TextEditingController();
-  final TextEditingController _videoUrlController = TextEditingController();
+  final TextEditingController _videoApiKeyController = TextEditingController();
+  final TextEditingController _videoBaseUrlController = TextEditingController();
   late String _selectedVideoModel;
   VideoPlatform _selectedVideoPlatform = VideoPlatform.geeknow;
   late int _selectedVideoSeconds;
@@ -10938,18 +11113,18 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> with SingleTickerProv
     _tabController = TabController(length: 4, vsync: this);
     
     // 初始化 LLM 配置
-    _llmApiController.text = apiConfigManager.llmApiKey;
-    _llmUrlController.text = apiConfigManager.llmBaseUrl;
+    _llmApiKeyController.text = apiConfigManager.llmApiKey;
+    _llmBaseUrlController.text = apiConfigManager.llmBaseUrl;
     _selectedLlmModel = apiConfigManager.llmModel;
 
     // 初始化图片配置
-    _imageApiController.text = apiConfigManager.imageApiKey;
-    _imageUrlController.text = apiConfigManager.imageBaseUrl;
+    _imageApiKeyController.text = apiConfigManager.imageApiKey;
+    _imageBaseUrlController.text = apiConfigManager.imageBaseUrl;
     _selectedImageModel = apiConfigManager.imageModel;
 
     // 初始化视频配置
-    _videoApiController.text = apiConfigManager.videoApiKey;
-    _videoUrlController.text = apiConfigManager.videoBaseUrl;
+    _videoApiKeyController.text = apiConfigManager.videoApiKey;
+    _videoBaseUrlController.text = apiConfigManager.videoBaseUrl;
     _selectedVideoModel = apiConfigManager.videoModel;
     _selectedVideoSeconds = apiConfigManager.videoSeconds;
 
@@ -11002,12 +11177,12 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> with SingleTickerProv
   @override
   void dispose() {
     _tabController.dispose();
-    _llmApiController.dispose();
-    _llmUrlController.dispose();
-    _imageApiController.dispose();
-    _imageUrlController.dispose();
-    _videoApiController.dispose();
-    _videoUrlController.dispose();
+    _llmApiKeyController.dispose();
+    _llmBaseUrlController.dispose();
+    _imageApiKeyController.dispose();
+    _imageBaseUrlController.dispose();
+    _videoApiKeyController.dispose();
+    _videoBaseUrlController.dispose();
     _saveTimer?.cancel();
     super.dispose();
   }
@@ -11018,18 +11193,18 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> with SingleTickerProv
     
     // 更新内存中的配置（立即生效）
     apiConfigManager.setLlmConfig(
-      _llmApiController.text,
-      _llmUrlController.text,
+      _llmApiKeyController.text,
+      _llmBaseUrlController.text,
       _selectedLlmModel,
     );
     apiConfigManager.setImageConfig(
-      _imageApiController.text,
-      _imageUrlController.text,
+      _imageApiKeyController.text,
+      _imageBaseUrlController.text,
       model: _selectedImageModel,
     );
     apiConfigManager.setVideoConfig(
-      _videoApiController.text,
-      _videoUrlController.text,
+      _videoApiKeyController.text,
+      _videoBaseUrlController.text,
       model: _selectedVideoModel,
       seconds: _selectedVideoSeconds,
     );
@@ -11056,22 +11231,22 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> with SingleTickerProv
       switch (type) {
         case 'llm':
           apiConfigManager.setLlmConfig(
-            _llmApiController.text,
-            _llmUrlController.text,
+            _llmApiKeyController.text,
+            _llmBaseUrlController.text,
             _selectedLlmModel,
           );
           break;
         case 'image':
           apiConfigManager.setImageConfig(
-            _imageApiController.text,
-            _imageUrlController.text,
+            _imageApiKeyController.text,
+            _imageBaseUrlController.text,
             model: _selectedImageModel,
           );
           break;
         case 'video':
           apiConfigManager.setVideoConfig(
-            _videoApiController.text,
-            _videoUrlController.text,
+            _videoApiKeyController.text,
+            _videoBaseUrlController.text,
             model: _selectedVideoModel,
             seconds: _selectedVideoSeconds,
           );
@@ -11363,11 +11538,11 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> with SingleTickerProv
                   _buildLlmPlatformSelector(),
                   SizedBox(height: 16),
                   // API URL
-                  _buildApiKeyField(_llmUrlController, 'API URL', 'https://api.geeknow.ai/v1'),
+                  _buildApiKeyField(_llmBaseUrlController, 'API URL', 'https://api.geeknow.ai/v1'),
                   SizedBox(height: 16),
                   // API Key
                   _buildApiKeyFieldWithVisibility(
-                    _llmApiController,
+                    _llmApiKeyController,
                     'API Key',
                     'sk-...',
                     _showLlmApiKey,
@@ -11499,11 +11674,11 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> with SingleTickerProv
               _buildImagePlatformSelector(),
               SizedBox(height: 16),
               // API URL
-              _buildApiKeyField(_imageUrlController, 'API URL', 'https://api.geeknow.ai/v1'),
+              _buildApiKeyField(_imageBaseUrlController, 'API URL', 'https://api.geeknow.ai/v1'),
               SizedBox(height: 16),
               // API Key
               _buildApiKeyFieldWithVisibility(
-                _imageApiController,
+                _imageApiKeyController,
                 'API Key',
                 'sk-...',
                 _showImageApiKey,
@@ -11633,11 +11808,11 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> with SingleTickerProv
               _buildVideoPlatformSelector(),
               SizedBox(height: 16),
               // API URL
-              _buildApiKeyField(_videoUrlController, 'API URL', 'https://api.geeknow.ai/v1'),
+              _buildApiKeyField(_videoBaseUrlController, 'API URL', 'https://api.geeknow.ai/v1'),
               SizedBox(height: 16),
               // API Key
               _buildApiKeyFieldWithVisibility(
-                _videoApiController,
+                _videoApiKeyController,
                 'API Key',
                 'sk-...',
                 _showVideoApiKey,
@@ -13683,7 +13858,7 @@ class _VideoSpaceWidgetState extends State<VideoSpaceWidget> {
 class _VideoCardWidget extends StatefulWidget {
   final Map<String, dynamic> video;
   
-  const _VideoCardWidget({required this.video});
+  const _VideoCardWidget({super.key, required this.video});
 
   @override
   State<_VideoCardWidget> createState() => _VideoCardWidgetState();
@@ -13898,8 +14073,23 @@ class _VideoCardWidgetState extends State<_VideoCardWidget> {
               right: 8,
               child: InkWell(
                 onTap: () {
+                  print('[_VideoCardWidget] 删除按钮点击');
+                  print('  - 视频 ID: ${widget.video['id']}');
+                  print('  - 视频 URL: ${widget.video['url']}');
+                  
+                  // CRITICAL: 传递视频对象给删除方法
                   generatedMediaManager.removeVideo(widget.video);
-                  logService.action('删除视频');
+                  
+                  // 强制刷新 UI（虽然 notifyListeners 应该已经触发）
+                  if (mounted) {
+                    Future.delayed(Duration(milliseconds: 50), () {
+                      if (mounted) {
+                        setState(() {
+                          print('[_VideoCardWidget] 强制刷新 UI');
+                        });
+                      }
+                    });
+                  }
                 },
                 child: Container(
                   padding: EdgeInsets.all(6),
@@ -14297,7 +14487,12 @@ class _VideoListWidget extends StatelessWidget {
                   final videoIndex = index - activeTasks.length - failedTasks.length;
                   if (videoIndex < generatedVideos.length) {
                     final video = generatedVideos[videoIndex];
-                    return _VideoCardWidget(video: video);
+                    // CRITICAL: 使用 key 确保 Widget 正确识别和更新
+                    final videoId = video['id'] ?? video['url'] ?? 'video_$videoIndex';
+                    return _VideoCardWidget(
+                      key: ValueKey(videoId),
+                      video: video,
+                    );
                   }
                   
                   return SizedBox.shrink();
@@ -15727,7 +15922,7 @@ class _SettingsMenuItem {
   });
 }
 
-// ==================== API 设置面板 ====================
+// ==================== API 设置面板（重构版 - 三通道独立配置）====================
 class ApiSettingsPanel extends StatefulWidget {
   const ApiSettingsPanel({super.key});
 
@@ -15736,64 +15931,63 @@ class ApiSettingsPanel extends StatefulWidget {
 }
 
 class _ApiSettingsPanelState extends State<ApiSettingsPanel> with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+  // final ApiManager _apiManager = ApiManager();  // 暂未使用，保留以备将来使用
+  final ApiConfigManager _configManager = ApiConfigManager();
+  
+  // 三个独立的供应商选择
+  String _selectedLlmProviderId = 'geeknow';
+  String _selectedImageProviderId = 'geeknow';
+  String _selectedVideoProviderId = 'geeknow';
   
   // LLM 配置
-  final TextEditingController _llmApiController = TextEditingController();
-  final TextEditingController _llmUrlController = TextEditingController();
-  String _selectedLlmModel = '';
-  String _llmModelSearch = '';
+  final TextEditingController _llmApiKeyController = TextEditingController();
+  final TextEditingController _llmBaseUrlController = TextEditingController();
+  bool _showLlmApiKey = false;
   
   // 图片配置
-  final TextEditingController _imageApiController = TextEditingController();
-  final TextEditingController _imageUrlController = TextEditingController();
-  String _selectedImageModel = '';
-  String _imageModelSearch = '';
+  final TextEditingController _imageApiKeyController = TextEditingController();
+  final TextEditingController _imageBaseUrlController = TextEditingController();
+  bool _showImageApiKey = false;
   
   // 视频配置
-  final TextEditingController _videoApiController = TextEditingController();
-  final TextEditingController _videoUrlController = TextEditingController();
-  String _selectedVideoModel = '';
+  final TextEditingController _videoApiKeyController = TextEditingController();
+  final TextEditingController _videoBaseUrlController = TextEditingController();
+  bool _showVideoApiKey = false;
+  
+  // final List<String> _availableProviders = ['geeknow'];  // 暂未使用，保留以备将来使用
+  
+  // 临时变量（为了兼容旧的 UI）
+  bool _isSaving = false;
+  late TabController _tabController;
+  
+  // 模型选择（暂时保留以兼容旧 UI）
+  String _selectedLlmModel = 'gpt-4o';
+  String _selectedImageModel = 'gemini-3-pro-image-preview';
+  String _selectedVideoModel = 'sora-1.0-turbo';
+  String _llmModelSearch = '';
+  String _imageModelSearch = '';
   String _videoModelSearch = '';
   
-  // API KEY 显示状态
-  bool _showLlmApiKey = false;
-  bool _showImageApiKey = false;
-  bool _showVideoApiKey = false;
-
-  // 扩展的模型列表
   final List<String> _llmModels = [
-    // OpenAI 系列
     'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo',
-    // Claude 系列
-    'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229',
-    // DeepSeek 系列
+    'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022',
     'deepseek-chat', 'deepseek-coder', 'deepseek-reasoner',
-    // Gemini 系列
     'gemini-2.0-flash-exp', 'gemini-1.5-pro', 'gemini-1.5-flash',
-    // 其他
     'qwen-plus', 'qwen-turbo', 'qwen-max', 'glm-4', 'glm-4-flash',
   ];
-
+  
   final List<String> _imageModels = [
-    // Gemini 图片模型
     'gemini-3-pro-image-preview',
     'gemini-3-pro-image-preview-lite',
     'gemini-2.5-flash-image-preview',
   ];
-
+  
   final List<String> _videoModels = [
-    // Sora 系列
     'sora-1.0-turbo', 'sora-2',
-    // Veo 系列
-    'veo_3_1', 'veo_3_1-fast', 'veo_3_1-fl', 'veo_3_1-fast-fl',
-    // Kling 系列
+    'veo_3_1', 'veo_3_1-fast',
     'kling-v1', 'kling-v1-5',
-    // Runway 系列
     'gen-3-alpha',
-    // Pika 系列
     'pika-1.0',
-    // Luma 系列
     'dream-machine',
   ];
 
@@ -15801,46 +15995,66 @@ class _ApiSettingsPanelState extends State<ApiSettingsPanel> with SingleTickerPr
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
-    _loadConfig();
-    // 监听配置变化，实现实时更新
-    apiConfigManager.addListener(_onConfigChanged);
-  }
-
-  bool _isSaving = false; // 标记是否正在保存，防止保存时重新加载覆盖用户输入
-
-  void _onConfigChanged() {
-    if (mounted && !_isSaving) {
-      // 只有在非保存状态下才重新加载配置
-      _loadConfig();
-      setState(() {});
-    }
-  }
-
-  void _loadConfig() {
-    _llmApiController.text = apiConfigManager.llmApiKey;
-    _llmUrlController.text = apiConfigManager.llmBaseUrl;
-    _selectedLlmModel = apiConfigManager.llmModel.isNotEmpty ? apiConfigManager.llmModel : _llmModels.first;
-    
-    _imageApiController.text = apiConfigManager.imageApiKey;
-    _imageUrlController.text = apiConfigManager.imageBaseUrl;
-    _selectedImageModel = apiConfigManager.imageModel.isNotEmpty ? apiConfigManager.imageModel : _imageModels.first;
-    
-    _videoApiController.text = apiConfigManager.videoApiKey;
-    _videoUrlController.text = apiConfigManager.videoBaseUrl;
-    _selectedVideoModel = apiConfigManager.videoModel.isNotEmpty ? apiConfigManager.videoModel : _videoModels.first;
+    _loadAllConfigs();
   }
 
   @override
   void dispose() {
-    apiConfigManager.removeListener(_onConfigChanged);
     _tabController.dispose();
-    _llmApiController.dispose();
-    _llmUrlController.dispose();
-    _imageApiController.dispose();
-    _imageUrlController.dispose();
-    _videoApiController.dispose();
-    _videoUrlController.dispose();
+    _llmApiKeyController.dispose();
+    _llmBaseUrlController.dispose();
+    _imageApiKeyController.dispose();
+    _imageBaseUrlController.dispose();
+    _videoApiKeyController.dispose();
+    _videoBaseUrlController.dispose();
     super.dispose();
+  }
+
+  /// 加载所有配置
+  Future<void> _loadAllConfigs() async {
+    setState(() {
+      // 加载供应商选择
+      _selectedLlmProviderId = _configManager.selectedLlmProviderId;
+      _selectedImageProviderId = _configManager.selectedImageProviderId;
+      _selectedVideoProviderId = _configManager.selectedVideoProviderId;
+      
+      // 加载 LLM 配置
+      _llmApiKeyController.text = _configManager.llmApiKey;
+      _llmBaseUrlController.text = _configManager.llmBaseUrl.isNotEmpty 
+          ? _configManager.llmBaseUrl 
+          : GeeknowModels.defaultBaseUrl;
+      _selectedLlmModel = _configManager.llmModel.isNotEmpty 
+          ? _configManager.llmModel 
+          : _llmModels.first;
+      
+      // 加载图片配置
+      _imageApiKeyController.text = _configManager.imageApiKey;
+      _imageBaseUrlController.text = _configManager.imageBaseUrl.isNotEmpty 
+          ? _configManager.imageBaseUrl 
+          : GeeknowImageModels.defaultBaseUrl;
+      _selectedImageModel = _configManager.imageModel.isNotEmpty 
+          ? _configManager.imageModel 
+          : _imageModels.first;
+      
+      // 加载视频配置
+      _videoApiKeyController.text = _configManager.videoApiKey;
+      _videoBaseUrlController.text = _configManager.videoBaseUrl.isNotEmpty 
+          ? _configManager.videoBaseUrl 
+          : GeeknowVideoModels.defaultBaseUrl;
+      _selectedVideoModel = _configManager.videoModel.isNotEmpty 
+          ? _configManager.videoModel 
+          : _videoModels.first;
+    });
+    
+    print('📋 [ApiSettingsPanel] 配置加载完成');
+    print('   - LLM Provider: $_selectedLlmProviderId');
+    print('   - Image Provider: $_selectedImageProviderId');
+    print('   - Video Provider: $_selectedVideoProviderId');
+  }
+  
+  /// _loadConfig 方法（为兼容旧代码而保留的别名）
+  void _loadConfig() {
+    _loadAllConfigs();
   }
 
   void _saveConfig() {
@@ -15850,12 +16064,12 @@ class _ApiSettingsPanelState extends State<ApiSettingsPanel> with SingleTickerPr
     // 验证必填字段
     final missingFields = <String>[];
     
-    if (_llmApiController.text.isEmpty) missingFields.add('LLM API Key');
-    if (_llmUrlController.text.isEmpty) missingFields.add('LLM Base URL');
-    if (_imageApiController.text.isEmpty) missingFields.add('图片 API Key');
-    if (_imageUrlController.text.isEmpty) missingFields.add('图片 Base URL');
-    if (_videoApiController.text.isEmpty) missingFields.add('视频 API Key');
-    if (_videoUrlController.text.isEmpty) missingFields.add('视频 Base URL');
+    if (_llmApiKeyController.text.isEmpty) missingFields.add('LLM API Key');
+    if (_llmBaseUrlController.text.isEmpty) missingFields.add('LLM Base URL');
+    if (_imageApiKeyController.text.isEmpty) missingFields.add('图片 API Key');
+    if (_imageBaseUrlController.text.isEmpty) missingFields.add('图片 Base URL');
+    if (_videoApiKeyController.text.isEmpty) missingFields.add('视频 API Key');
+    if (_videoBaseUrlController.text.isEmpty) missingFields.add('视频 Base URL');
     
     if (missingFields.isNotEmpty) {
       logService.warn('API配置不完整', details: '缺少: ${missingFields.join(", ")}');
@@ -15878,20 +16092,58 @@ class _ApiSettingsPanelState extends State<ApiSettingsPanel> with SingleTickerPr
     
     // 批量更新配置，避免多次 notifyListeners() 导致 UI 重建
     apiConfigManager.updateConfigBatch(
-      llmApiKey: _llmApiController.text,
-      llmBaseUrl: _llmUrlController.text,
+      selectedLlmProviderId: _selectedLlmProviderId,
+      selectedImageProviderId: _selectedImageProviderId,
+      selectedVideoProviderId: _selectedVideoProviderId,
+      llmApiKey: _llmApiKeyController.text,
+      llmBaseUrl: _llmBaseUrlController.text,
       llmModel: _selectedLlmModel,
-      imageApiKey: _imageApiController.text,
-      imageBaseUrl: _imageUrlController.text,
+      imageApiKey: _imageApiKeyController.text,
+      imageBaseUrl: _imageBaseUrlController.text,
       imageModel: _selectedImageModel,
-      videoApiKey: _videoApiController.text,
-      videoBaseUrl: _videoUrlController.text,
+      videoApiKey: _videoApiKeyController.text,
+      videoBaseUrl: _videoBaseUrlController.text,
       videoModel: _selectedVideoModel,
     );
     
     // 延迟通知，避免阻塞 UI（使用 microtask 确保在当前帧之后执行）
     Future.microtask(() {
       apiConfigManager.triggerNotify();
+      
+      // 更新 ApiManager（使用混合服务商模式，分别设置三个 Provider）
+      try {
+        print('🔄 [ApiSettingsPanel] 更新 ApiManager 配置');
+        
+        // 分别更新 LLM、图片、视频 Provider
+        ApiManager().setLlmProvider(
+          _selectedLlmProviderId,
+          baseUrl: _llmBaseUrlController.text,
+          apiKey: _llmApiKeyController.text,
+        );
+        
+        ApiManager().setImageProvider(
+          _selectedImageProviderId,
+          baseUrl: _imageBaseUrlController.text,
+          apiKey: _imageApiKeyController.text,
+        );
+        
+        ApiManager().setVideoProvider(
+          _selectedVideoProviderId,
+          baseUrl: _videoBaseUrlController.text,
+          apiKey: _videoApiKeyController.text,
+        );
+        
+        print('✅ [ApiSettingsPanel] ApiManager 已更新 (3/3 Providers)');
+        print('   - LLM: $_selectedLlmProviderId');
+        print('   - Image: $_selectedImageProviderId');
+        print('   - Video: $_selectedVideoProviderId');
+        
+        // 可选：打印配置摘要（用于调试）
+        // ApiManager().printConfig();
+      } catch (e, stackTrace) {
+        print('❌ [CRITICAL ERROR CAUGHT] 更新 ApiManager 失败: $e');
+        print('📍 [Stack Trace]: $stackTrace');
+      }
     });
     
     // 延迟重置保存标记
@@ -15902,6 +16154,60 @@ class _ApiSettingsPanelState extends State<ApiSettingsPanel> with SingleTickerPr
     });
     
     logService.info('API配置已保存');
+  }
+
+  // 处理供应商切换（支持独立设置每个服务的供应商）
+  void _onProviderChanged(String type, String newProviderId) {
+    print('🔄 [ApiSettingsPanel] 切换 $type 供应商: $newProviderId');
+    
+    setState(() {
+      switch (type) {
+        case 'llm':
+          _selectedLlmProviderId = newProviderId;
+          // 如果是切换到 GeekNow，更新默认 Base URL
+          if (newProviderId == 'geeknow') {
+            _llmBaseUrlController.text = GeeknowModels.defaultBaseUrl;
+          }
+          break;
+        case 'image':
+          _selectedImageProviderId = newProviderId;
+          if (newProviderId == 'geeknow') {
+            _imageBaseUrlController.text = GeeknowImageModels.defaultBaseUrl;
+          }
+          break;
+        case 'video':
+          _selectedVideoProviderId = newProviderId;
+          if (newProviderId == 'geeknow') {
+            _videoBaseUrlController.text = GeeknowVideoModels.defaultBaseUrl;
+          }
+          break;
+      }
+    });
+    
+    // 更新配置管理器中的对应供应商
+    switch (type) {
+      case 'llm':
+        apiConfigManager.setLlmProvider(newProviderId);
+        break;
+      case 'image':
+        apiConfigManager.setImageProvider(newProviderId);
+        break;
+      case 'video':
+        apiConfigManager.setVideoProvider(newProviderId);
+        break;
+    }
+    
+    // 通知用户
+    final typeLabel = type == 'llm' ? 'LLM' : type == 'image' ? '图片' : '视频';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$typeLabel 服务已切换到 ${apiConfigManager.getProviderDisplayName(newProviderId)}'),
+        backgroundColor: AnimeColors.purple,
+        duration: Duration(seconds: 2),
+      ),
+    );
+    
+    logService.info('供应商已切换', details: '$type -> $newProviderId');
   }
 
   @override
@@ -15931,6 +16237,7 @@ class _ApiSettingsPanelState extends State<ApiSettingsPanel> with SingleTickerPr
             ],
           ),
           SizedBox(height: 24),
+          
           // Tab 栏
           Container(
             decoration: BoxDecoration(
@@ -15976,9 +16283,18 @@ class _ApiSettingsPanelState extends State<ApiSettingsPanel> with SingleTickerPr
         icon: Icons.psychology_outlined,
         color: AnimeColors.blue,
         children: [
-          _buildTextField('API Key', _llmApiController, '输入 API Key', isPassword: true, showPassword: _showLlmApiKey, onTogglePassword: () => setState(() => _showLlmApiKey = !_showLlmApiKey)),
+          // API 供应商选择
+          _buildIndependentProviderSelector(
+            type: 'llm',
+            label: 'LLM API 服务商',
+            currentProvider: _selectedLlmProviderId,
+            color: AnimeColors.blue,
+          ),
+          SizedBox(height: 20),
+          
+          _buildTextField('API Key', _llmApiKeyController, '输入 API Key', isPassword: true, showPassword: _showLlmApiKey, onTogglePassword: () => setState(() => _showLlmApiKey = !_showLlmApiKey)),
           SizedBox(height: 16),
-          _buildTextField('Base URL', _llmUrlController, 'https://api.openai.com/v1'),
+          _buildTextField('Base URL', _llmBaseUrlController, 'https://api.openai.com/v1'),
           SizedBox(height: 16),
           _buildModelSelector('选择模型', _llmModels, _selectedLlmModel, _llmModelSearch, (v) => setState(() => _selectedLlmModel = v), (v) => setState(() => _llmModelSearch = v)),
         ],
@@ -15993,9 +16309,18 @@ class _ApiSettingsPanelState extends State<ApiSettingsPanel> with SingleTickerPr
         icon: Icons.photo_camera_outlined,
         color: AnimeColors.sakura,
         children: [
-          _buildTextField('API Key', _imageApiController, '输入 API Key', isPassword: true, showPassword: _showImageApiKey, onTogglePassword: () => setState(() => _showImageApiKey = !_showImageApiKey)),
+          // API 供应商选择
+          _buildIndependentProviderSelector(
+            type: 'image',
+            label: '图片 API 服务商',
+            currentProvider: _selectedImageProviderId,
+            color: AnimeColors.sakura,
+          ),
+          SizedBox(height: 20),
+          
+          _buildTextField('API Key', _imageApiKeyController, '输入 API Key', isPassword: true, showPassword: _showImageApiKey, onTogglePassword: () => setState(() => _showImageApiKey = !_showImageApiKey)),
           SizedBox(height: 16),
-          _buildTextField('Base URL', _imageUrlController, 'https://api.openai.com/v1'),
+          _buildTextField('Base URL', _imageBaseUrlController, 'https://api.openai.com/v1'),
           SizedBox(height: 16),
           _buildModelSelector('选择模型', _imageModels, _selectedImageModel, _imageModelSearch, (v) => setState(() => _selectedImageModel = v), (v) => setState(() => _imageModelSearch = v)),
         ],
@@ -16010,11 +16335,163 @@ class _ApiSettingsPanelState extends State<ApiSettingsPanel> with SingleTickerPr
         icon: Icons.videocam_outlined,
         color: AnimeColors.purple,
         children: [
-          _buildTextField('API Key', _videoApiController, '输入 API Key', isPassword: true, showPassword: _showVideoApiKey, onTogglePassword: () => setState(() => _showVideoApiKey = !_showVideoApiKey)),
+          // API 供应商选择
+          _buildIndependentProviderSelector(
+            type: 'video',
+            label: '视频 API 服务商',
+            currentProvider: _selectedVideoProviderId,
+            color: AnimeColors.purple,
+          ),
+          SizedBox(height: 20),
+          
+          _buildTextField('API Key', _videoApiKeyController, '输入 API Key', isPassword: true, showPassword: _showVideoApiKey, onTogglePassword: () => setState(() => _showVideoApiKey = !_showVideoApiKey)),
           SizedBox(height: 16),
-          _buildTextField('Base URL', _videoUrlController, 'https://api.example.com/v1'),
+          _buildTextField('Base URL', _videoBaseUrlController, 'https://api.example.com/v1'),
           SizedBox(height: 16),
           _buildModelSelector('选择模型', _videoModels, _selectedVideoModel, _videoModelSearch, (v) => setState(() => _selectedVideoModel = v), (v) => setState(() => _videoModelSearch = v)),
+        ],
+      ),
+    );
+  }
+
+  // 独立的供应商选择器（用于每个Tab内部）
+  Widget _buildIndependentProviderSelector({
+    required String type,
+    required String label,
+    required String currentProvider,
+    required Color color,
+  }) {
+    final providers = apiConfigManager.getSupportedProviders();
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.business_outlined, color: color, size: 18),
+            SizedBox(width: 8),
+            Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+        SizedBox(height: 10),
+        Container(
+          padding: EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+          decoration: BoxDecoration(
+            color: AnimeColors.darkBg,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: color.withOpacity(0.3), width: 1.5),
+          ),
+          child: DropdownButton<String>(
+            value: currentProvider,
+            isExpanded: true,
+            underline: SizedBox(),
+            dropdownColor: AnimeColors.darkBg,
+            icon: Icon(Icons.arrow_drop_down, color: Colors.white70, size: 22),
+            style: TextStyle(color: Colors.white, fontSize: 14),
+            items: providers.map((providerId) {
+              final isSelected = providerId == currentProvider;
+              return DropdownMenuItem<String>(
+                value: providerId,
+                child: Row(
+                  children: [
+                    Icon(
+                      isSelected ? Icons.check_circle : Icons.circle_outlined,
+                      size: 18,
+                      color: isSelected ? color : Colors.white38,
+                    ),
+                    SizedBox(width: 12),
+                    Text(
+                      apiConfigManager.getProviderDisplayName(providerId),
+                      style: TextStyle(
+                        color: isSelected ? Colors.white : Colors.white70,
+                        fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+            onChanged: (newProviderId) {
+              if (newProviderId != null && newProviderId != currentProvider) {
+                _onProviderChanged(type, newProviderId);
+              }
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  // 旧的全局供应商选择器（已废弃，保留以防回滚）
+  @Deprecated('使用 _buildIndependentProviderSelector 替代')
+  Widget _buildProviderSelector() {
+    final providers = apiConfigManager.getSupportedProviders();
+    
+    // 使用 LLM 供应商作为默认显示（因为目前所有服务使用相同供应商）
+    final currentProviderId = _selectedLlmProviderId;
+    
+    return Container(
+      padding: EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AnimeColors.cardBg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AnimeColors.miku.withOpacity(0.3)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.business, color: AnimeColors.miku, size: 20),
+          SizedBox(width: 12),
+          Text('API 供应商 (所有服务)', style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w600)),
+          SizedBox(width: 20),
+          Expanded(
+            child: Container(
+              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              decoration: BoxDecoration(
+                color: AnimeColors.darkBg,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: DropdownButton<String>(
+                value: currentProviderId,
+                isExpanded: true,
+                underline: SizedBox(),
+                dropdownColor: AnimeColors.darkBg,
+                icon: Icon(Icons.arrow_drop_down, color: Colors.white70),
+                style: TextStyle(color: Colors.white, fontSize: 14),
+                items: providers.map((providerId) {
+                  return DropdownMenuItem<String>(
+                    value: providerId,
+                    child: Text(
+                      apiConfigManager.getProviderDisplayName(providerId),
+                      style: TextStyle(color: Colors.white70),
+                    ),
+                  );
+                }).toList(),
+                onChanged: (newProviderId) {
+                  if (newProviderId != null && newProviderId != currentProviderId) {
+                    // 旧方法：同时设置所有三个供应商（已废弃）
+                    _onProviderChanged('llm', newProviderId);
+                    _onProviderChanged('image', newProviderId);
+                    _onProviderChanged('video', newProviderId);
+                  }
+                },
+              ),
+            ),
+          ),
+          SizedBox(width: 12),
+          // 提示信息
+          Tooltip(
+            message: currentProviderId == 'geeknow' 
+                ? 'GeekNow: 统一中转服务，支持多模型' 
+                : 'Custom: 使用自定义 API 端点',
+            child: Icon(Icons.info_outline, color: Colors.white38, size: 18),
+          ),
         ],
       ),
     );
@@ -18612,19 +19089,17 @@ class _CharacterCreatePageState extends State<CharacterCreatePage> {
                     updateMessage('步骤 1/3: 正在转换图片为视频...');
                     videoFile = await _ffmpegService.convertImageToVideo(imageFile);
 
-                    // 4. 创建 SoraApiService 实例（使用视频模型的 API 配置，Supabase Storage 配置已内置）
-                    final soraApiService = SoraApiService(
-                      baseUrl: apiConfigManager.videoBaseUrl,
-                      apiKey: apiConfigManager.videoApiKey,
-                    );
+                    // 4. 使用 ApiManager 上传和创建角色
+                    // ApiManager 已在 App 启动时初始化，直接使用单例即可
+                    final apiManager = ApiManager();
 
                     // 5. 上传视频到 Supabase Storage
                     updateMessage('步骤 2/3: 正在上传视频到 Supabase Storage...');
-                    final videoUrl = await soraApiService.uploadVideoToOss(videoFile);
+                    final videoUrl = await apiManager.uploadVideoToOss(videoFile);
 
                     // 6. 创建角色
                     updateMessage('步骤 3/3: 正在注册角色...');
-                    final characterData = await soraApiService.createCharacter(videoUrl);
+                    final characterData = await apiManager.createCharacter(videoUrl);
 
                     // 7. 隐藏 Loading
                     if (mounted && Navigator.canPop(dialogContext)) {

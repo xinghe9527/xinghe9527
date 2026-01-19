@@ -176,6 +176,15 @@ class ApiConfigManager extends ChangeNotifier {
   factory ApiConfigManager() => _instance;
   ApiConfigManager._internal();
 
+  // 供应商配置（混合服务商模式 - 分别为 LLM、图片、视频配置）
+  String _selectedLlmProviderId = 'geeknow';    // LLM 服务供应商
+  String _selectedImageProviderId = 'geeknow';  // 图片生成服务供应商
+  String _selectedVideoProviderId = 'geeknow';  // 视频生成服务供应商
+  
+  // 向后兼容属性（废弃）
+  @Deprecated('请使用 selectedLlmProviderId, selectedImageProviderId, selectedVideoProviderId')
+  String get selectedProviderId => _selectedVideoProviderId; // 默认返回视频供应商
+
   // LLM 配置（统一使用 GEEKNOW 中转）
   String _llmApiKey = '';
   String _llmBaseUrl = GeeknowModels.defaultBaseUrl;
@@ -196,11 +205,17 @@ class ApiConfigManager extends ChangeNotifier {
   String _videoSize = '720x1280';
   int _videoSeconds = 10;
 
-  // Getters
+  // Getters - 供应商选择
+  String get selectedLlmProviderId => _selectedLlmProviderId;
+  String get selectedImageProviderId => _selectedImageProviderId;
+  String get selectedVideoProviderId => _selectedVideoProviderId;
+  
+  // Getters - LLM 配置
   String get llmApiKey => _llmApiKey;
   String get llmBaseUrl => _llmBaseUrl;
   String get llmModel => _llmModel;
 
+  // Getters - 图片配置
   String get imageApiKey => _imageApiKey;
   String get imageBaseUrl => _imageBaseUrl;
   String get imageModel => _imageModel;
@@ -208,6 +223,7 @@ class ApiConfigManager extends ChangeNotifier {
   String get imageQuality => _imageQuality;
   String get imageStyle => _imageStyle;
 
+  // Getters - 视频配置
   String get videoApiKey => _videoApiKey;
   String get videoBaseUrl => _videoBaseUrl;
   String get videoModel => _videoModel;
@@ -227,6 +243,17 @@ class ApiConfigManager extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       
+      // 加载三个独立的供应商选择（混合服务商模式）
+      _selectedLlmProviderId = prefs.getString('selected_llm_provider') ?? 'geeknow';
+      _selectedImageProviderId = prefs.getString('selected_image_provider') ?? 'geeknow';
+      _selectedVideoProviderId = prefs.getString('selected_video_provider') ?? 'geeknow';
+      
+      print('📋 [ApiConfigManager] 加载供应商选择:');
+      print('   - LLM: $_selectedLlmProviderId');
+      print('   - Image: $_selectedImageProviderId');
+      print('   - Video: $_selectedVideoProviderId');
+      
+      // 加载对应供应商的配置
       _llmApiKey = prefs.getString('llm_api_key') ?? '';
       _llmBaseUrl = prefs.getString('llm_base_url') ?? GeeknowModels.defaultBaseUrl;
       _llmModel = prefs.getString('llm_model') ?? GeeknowModels.defaultModel;
@@ -251,8 +278,9 @@ class ApiConfigManager extends ChangeNotifier {
       _videoSeconds = prefs.getInt('video_seconds') ?? 10;
       
       notifyListeners();
-    } catch (e) {
-      print('加载API配置失败: $e');
+    } catch (e, stackTrace) {
+      print('❌ [CRITICAL ERROR CAUGHT] 加载API配置失败: $e');
+      print('📍 [Stack Trace]: $stackTrace');
     }
   }
 
@@ -263,6 +291,11 @@ class ApiConfigManager extends ChangeNotifier {
       
       // 批量写入，减少等待时间
       await Future.wait([
+        // 保存三个独立的供应商选择
+        prefs.setString('selected_llm_provider', _selectedLlmProviderId),
+        prefs.setString('selected_image_provider', _selectedImageProviderId),
+        prefs.setString('selected_video_provider', _selectedVideoProviderId),
+        // 保存各项配置
         prefs.setString('llm_api_key', _llmApiKey),
         prefs.setString('llm_base_url', _llmBaseUrl),
         prefs.setString('llm_model', _llmModel),
@@ -278,8 +311,9 @@ class ApiConfigManager extends ChangeNotifier {
         prefs.setString('video_size', _videoSize),
         prefs.setInt('video_seconds', _videoSeconds),
       ]);
-    } catch (e) {
-      print('保存API配置失败: $e');
+    } catch (e, stackTrace) {
+      print('❌ [CRITICAL ERROR CAUGHT] 保存API配置失败: $e');
+      print('📍 [Stack Trace]: $stackTrace');
     }
   }
   
@@ -291,6 +325,9 @@ class ApiConfigManager extends ChangeNotifier {
   
   // 批量更新配置（不触发 notifyListeners，用于一次性更新多个配置）
   void updateConfigBatch({
+    String? selectedLlmProviderId,
+    String? selectedImageProviderId,
+    String? selectedVideoProviderId,
     String? llmApiKey,
     String? llmBaseUrl,
     String? llmModel,
@@ -301,6 +338,9 @@ class ApiConfigManager extends ChangeNotifier {
     String? videoBaseUrl,
     String? videoModel,
   }) {
+    if (selectedLlmProviderId != null) _selectedLlmProviderId = selectedLlmProviderId;
+    if (selectedImageProviderId != null) _selectedImageProviderId = selectedImageProviderId;
+    if (selectedVideoProviderId != null) _selectedVideoProviderId = selectedVideoProviderId;
     if (llmApiKey != null) _llmApiKey = llmApiKey;
     if (llmBaseUrl != null) _llmBaseUrl = llmBaseUrl;
     if (llmModel != null) _llmModel = llmModel;
@@ -467,6 +507,10 @@ class ApiConfigManager extends ChangeNotifier {
 
   // 重置所有配置
   void reset() {
+    _selectedLlmProviderId = 'geeknow';
+    _selectedImageProviderId = 'geeknow';
+    _selectedVideoProviderId = 'geeknow';
+    
     _llmApiKey = '';
     _llmBaseUrl = GeeknowModels.defaultBaseUrl;
     _llmModel = GeeknowModels.defaultModel;
@@ -485,5 +529,57 @@ class ApiConfigManager extends ChangeNotifier {
     _videoSeconds = 10;
 
     notifyListeners();
+  }
+
+  // 设置 LLM 供应商
+  void setLlmProvider(String providerId) {
+    print('🔄 [ApiConfigManager] 切换 LLM 供应商: $providerId');
+    _selectedLlmProviderId = providerId;
+    saveConfigNonBlocking();
+    notifyListeners();
+  }
+  
+  // 设置图片供应商
+  void setImageProvider(String providerId) {
+    print('🔄 [ApiConfigManager] 切换图片供应商: $providerId');
+    _selectedImageProviderId = providerId;
+    saveConfigNonBlocking();
+    notifyListeners();
+  }
+  
+  // 设置视频供应商
+  void setVideoProvider(String providerId) {
+    print('🔄 [ApiConfigManager] 切换视频供应商: $providerId');
+    _selectedVideoProviderId = providerId;
+    saveConfigNonBlocking();
+    notifyListeners();
+  }
+
+  // 向后兼容方法（废弃）
+  @Deprecated('请使用 setLlmProvider, setImageProvider, setVideoProvider')
+  void setProvider(String providerId) {
+    print('⚠️ [ApiConfigManager] 使用废弃的 setProvider 方法');
+    print('⚠️ [ApiConfigManager] 建议使用 setLlmProvider, setImageProvider, setVideoProvider');
+    // 同时设置所有三个供应商（向后兼容）
+    setLlmProvider(providerId);
+    setImageProvider(providerId);
+    setVideoProvider(providerId);
+  }
+
+  // 获取支持的供应商列表
+  List<String> getSupportedProviders() {
+    return ['geeknow', 'custom'];
+  }
+
+  // 获取供应商显示名称
+  String getProviderDisplayName(String providerId) {
+    switch (providerId.toLowerCase()) {
+      case 'geeknow':
+        return 'GeekNow';
+      case 'custom':
+        return 'Custom/Other';
+      default:
+        return providerId;
+    }
   }
 }
