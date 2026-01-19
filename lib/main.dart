@@ -1738,11 +1738,11 @@ class ResponsiveInputWrapper extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (ResponsiveLayout.isDesktop(context)) {
-      return Center(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(maxWidth: maxWidth),
-          child: child,
-        ),
+      final screenWidth = MediaQuery.of(context).size.width;
+      final leftRightPadding = screenWidth > maxWidth ? (screenWidth - maxWidth) / 2 : 0.0;
+      return Padding(
+        padding: EdgeInsets.symmetric(horizontal: leftRightPadding),
+        child: child,
       );
     }
     return child;
@@ -12742,7 +12742,7 @@ class _DrawingSpaceWidgetState extends State<DrawingSpaceWidget> {
     bool expanded = false,
     Widget? actionButton,
   }) {
-    final content = ClipRRect(
+    return ClipRRect(
       borderRadius: BorderRadius.circular(16),
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
@@ -12781,13 +12781,12 @@ class _DrawingSpaceWidgetState extends State<DrawingSpaceWidget> {
                 ],
               ),
               SizedBox(height: 14),
-              expanded ? Expanded(child: child) : child,
+              if (expanded) Expanded(child: child) else child,
             ],
           ),
         ),
       ),
     );
-    return expanded ? Expanded(child: content) : content;
   }
 
   Widget _buildAddImagePlaceholder() {
@@ -13408,7 +13407,6 @@ class _VideoSpaceWidgetState extends State<VideoSpaceWidget> {
                                                         borderRadius: BorderRadius.circular(6),
                                                       ),
                                                       child: Row(
-                                                        mainAxisSize: MainAxisSize.min,
                                                         children: [
                                                           Expanded(
                                                             child: SelectableText(
@@ -14514,7 +14512,7 @@ class _VideoListWidget extends StatelessWidget {
     bool expanded = false,
     Widget? actionButton,
   }) {
-    final content = ClipRRect(
+    return ClipRRect(
       borderRadius: BorderRadius.circular(16),
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
@@ -14556,13 +14554,12 @@ class _VideoListWidget extends StatelessWidget {
                 ],
               ),
               SizedBox(height: 14),
-              expanded ? Expanded(child: child) : child,
+              if (expanded) Expanded(child: child) else child,
             ],
           ),
         ),
       ),
     );
-    return expanded ? Expanded(child: content) : content;
   }
 }
 
