@@ -1,4 +1,5 @@
 import 'dart:io';
+import '../../utils/index.dart';
 
 /// 视频任务状态
 class VideoTaskStatus {
@@ -104,4 +105,109 @@ abstract class BaseApiProvider {
   /// [videoUrl] 视频 URL
   /// 返回角色创建响应数据
   Future<Map<String, dynamic>> createCharacter(String videoUrl);
+
+  // ==================== 受保护的通用方法 ====================
+
+  /// 安全的 API 调用包装器（受保护方法，供子类使用）
+  /// 
+  /// 统一处理所有 API 调用的错误，包括：
+  /// - 网络连接错误（SocketException）
+  /// - 请求超时（TimeoutException）
+  /// - HTTP 错误响应（4xx, 5xx）
+  /// - 数据解析错误（FormatException）
+  /// - 其他未知错误
+  /// 
+  /// **使用示例**：
+  /// ```dart
+  /// // 子类中使用
+  /// Future<String> chatCompletion({...}) async {
+  ///   return await safeApiCall(
+  ///     apiCall: () async {
+  ///       final response = await http.post(...);
+  ///       if (response.statusCode != 200) {
+  ///         throw response;
+  ///       }
+  ///       return jsonDecode(response.body)['content'];
+  ///     },
+  ///     context: 'LLM 聊天补全',
+  ///   );
+  /// }
+  /// ```
+  /// 
+  /// [apiCall] 实际的 API 调用函数
+  /// [context] 错误上下文（如 "图片生成", "视频任务查询"），用于日志记录
+  /// 
+  /// 返回 API 调用的结果，或抛出 AppException
+  Future<T> safeApiCall<T>({
+    required Future<T> Function() apiCall,
+    String? context,
+  }) async {
+    try {
+      // 执行 API 调用
+      return await apiCall();
+      
+    } on AppException {
+      // 如果已经是 AppException，直接重新抛出
+      rethrow;
+      
+    } catch (e, stackTrace) {
+      // 捕获所有其他异常，统一处理
+      
+      // 记录详细的错误日志（包含上下文）
+      ApiErrorHandler.logError(
+        e,
+        stackTrace: stackTrace,
+        context: context ?? '${providerName} API 调用',
+      );
+      
+      // 创建统一的 AppException 并抛出
+      // ApiErrorHandler.createException 会根据错误类型生成合适的中文提示
+      throw ApiErrorHandler.createException(e, stackTrace);
+    }
+  }
+
+  /// 安全的 HTTP 响应检查（受保护方法，供子类使用）
+  /// 
+  /// 检查 HTTP 响应状态码，如果不是 200，则抛出 AppException
+  /// 
+  /// **使用示例**：
+  /// ```dart
+  /// final response = await http.post(...);
+  /// checkHttpResponse(response, context: '图片生成');
+  /// ```
+  /// 
+  /// [response] HTTP 响应对象
+  /// [context] 错误上下文
+  /// [expectedStatusCode] 期望的状态码（默认 200）
+  void checkHttpResponse(
+    dynamic response, {
+    String? context,
+    int expectedStatusCode = 200,
+  }) {
+    // 检查响应对象是否有 statusCode 属性
+    if (response is! Object || 
+        !response.toString().contains('statusCode')) {
+      return;
+    }
+    
+    // 尝试获取状态码
+    int? statusCode;
+    try {
+      statusCode = (response as dynamic).statusCode as int?;
+    } catch (_) {
+      return;
+    }
+    
+    // 如果状态码不符合期望，抛出异常
+    if (statusCode != null && statusCode != expectedStatusCode) {
+      final errorContext = context ?? '${providerName} API 请求';
+      print('❌ [$errorContext] HTTP 错误: $statusCode');
+      
+      // 创建服务器错误异常
+      throw AppException.server(
+        statusCode: statusCode,
+        originalError: response,
+      );
+    }
+  }
 }
