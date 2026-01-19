@@ -48,3 +48,10 @@ app.*.map.json
 .env
 .env.local
 .env.*.local
+
+# FFmpeg 可执行文件（文件太大，约 100MB）
+# 使用 download_ffmpeg.ps1 脚本下载
+windows/ffmpeg/ffmpeg.exe
+assets/ffmpeg/
+ffmpeg.zip
+ffmpeg_temp/

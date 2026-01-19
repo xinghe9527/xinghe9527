@@ -1,14 +1,51 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as path;
 
 /// FFmpeg 转码服务
 /// 负责将图片转换为视频
-/// 在 Windows 上使用系统 FFmpeg（需要用户安装 FFmpeg 并添加到 PATH）
+/// 优先使用打包在应用程序中的 FFmpeg，如果找不到则回退到系统 FFmpeg
 /// 
 /// 重构说明：
 /// - 使用 `compute()` 在隔离的 Isolate 中运行 FFmpeg 进程，避免阻塞 UI 线程
+/// - 自动检测并使用打包的 FFmpeg（开箱即用）
 class FFmpegService {
+  /// 获取 FFmpeg 可执行文件路径
+  /// 
+  /// 优先级：
+  /// 1. 打包在应用程序中的 FFmpeg (Windows: xinghe.exe 同级目录下的 ffmpeg.exe)
+  /// 2. 系统 PATH 中的 FFmpeg
+  static Future<String> _getFFmpegPath() async {
+    try {
+      // 尝试使用打包的 FFmpeg
+      if (Platform.isWindows) {
+        // 获取可执行文件目录
+        final exePath = Platform.resolvedExecutable;
+        final exeDir = path.dirname(exePath);
+        final bundledFFmpeg = path.join(exeDir, 'ffmpeg.exe');
+        
+        print('[FFmpegService] 检查打包的 FFmpeg: $bundledFFmpeg');
+        
+        if (await File(bundledFFmpeg).exists()) {
+          print('[FFmpegService] ✅ 找到打包的 FFmpeg: $bundledFFmpeg');
+          return bundledFFmpeg;
+        } else {
+          print('[FFmpegService] ⚠️ 未找到打包的 FFmpeg，尝试使用系统 FFmpeg');
+        }
+      }
+      
+      // 回退到系统 FFmpeg
+      print('[FFmpegService] 使用系统 FFmpeg: ffmpeg');
+      return 'ffmpeg';
+    } catch (e, stackTrace) {
+      print('❌ [CRITICAL ERROR CAUGHT] 获取 FFmpeg 路径失败');
+      print('❌ [Error Details]: $e');
+      print('📍 [Stack Trace]: $stackTrace');
+      // 默认使用系统 FFmpeg
+      return 'ffmpeg';
+    }
+  }
   /// 将图片文件转换为 3 秒静态视频
   /// 
   /// [imageFile] 输入的图片文件
@@ -70,11 +107,14 @@ class FFmpegService {
         outputPath,
       ];
       
-      print('[FFmpegService] 执行 FFmpeg 命令: ffmpeg ${commandArgs.join(' ')}');
+      // 获取 FFmpeg 路径（打包的或系统的）
+      final ffmpegPath = await _getFFmpegPath();
+      
+      print('[FFmpegService] 执行 FFmpeg 命令: $ffmpegPath ${commandArgs.join(' ')}');
       
       // 使用 compute() 在后台 Isolate 中执行 FFmpeg 进程，避免阻塞 UI 线程
       final result = await compute(_runFFmpegProcess, _FFmpegProcessParams(
-        command: 'ffmpeg',
+        command: ffmpegPath,
         args: commandArgs,
         runInShell: true,
       ));
@@ -220,11 +260,14 @@ class FFmpegService {
         outputPath,
       ];
 
-      print('[FFmpegService] 执行 FFmpeg 命令: ffmpeg ${commandArgs.join(' ')}');
+      // 获取 FFmpeg 路径（打包的或系统的）
+      final ffmpegPath = await _getFFmpegPath();
+      
+      print('[FFmpegService] 执行 FFmpeg 命令: $ffmpegPath ${commandArgs.join(' ')}');
 
       // 使用 compute() 在后台 Isolate 中执行
       final result = await compute(_runFFmpegProcess, _FFmpegProcessParams(
-        command: 'ffmpeg',
+        command: ffmpegPath,
         args: commandArgs,
         runInShell: true,
       ));
@@ -302,11 +345,14 @@ class FFmpegService {
         outputPath,
       ];
       
-      print('[FFmpegService] 执行 FFmpeg 命令: ffmpeg ${commandArgs.join(' ')}');
+      // 获取 FFmpeg 路径（打包的或系统的）
+      final ffmpegPath = await _getFFmpegPath();
+      
+      print('[FFmpegService] 执行 FFmpeg 命令: $ffmpegPath ${commandArgs.join(' ')}');
       
       // 使用 compute() 在后台 Isolate 中执行
       final result = await compute(_runFFmpegProcess, _FFmpegProcessParams(
-        command: 'ffmpeg',
+        command: ffmpegPath,
         args: commandArgs,
         runInShell: true,
       ));

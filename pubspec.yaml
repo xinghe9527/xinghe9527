@@ -40,8 +40,9 @@ dependencies:
   shared_preferences: ^2.2.2
   file_picker: ^10.3.8
   # 视频转码和文件处理
-  # Windows 上使用系统 FFmpeg（需要用户安装 FFmpeg 并添加到 PATH）
+  # FFmpeg 已打包在应用程序中（开箱即用）
   path_provider: ^2.1.5
+  path: ^1.9.0
   image_picker: ^1.2.1
   dio: ^5.9.0
   crypto: ^3.0.5
@@ -85,6 +86,7 @@ flutter:
   # Assets
   assets:
     - .env
+    - assets/ffmpeg/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

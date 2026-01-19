@@ -106,3 +106,16 @@ install(DIRECTORY "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}"
 install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   CONFIGURATIONS Profile;Release
   COMPONENT Runtime)
+
+# === FFmpeg 打包配置 ===
+# 将 FFmpeg 可执行文件复制到输出目录
+# FFmpeg 文件应该放在 windows/ffmpeg/ 目录中
+set(FFMPEG_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ffmpeg")
+if(EXISTS "${FFMPEG_DIR}/ffmpeg.exe")
+  install(FILES "${FFMPEG_DIR}/ffmpeg.exe"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}"
+    COMPONENT Runtime)
+  message(STATUS "FFmpeg will be bundled with the application")
+else()
+  message(WARNING "FFmpeg not found at ${FFMPEG_DIR}/ffmpeg.exe - will use system FFmpeg")
+endif()
