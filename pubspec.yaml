@@ -55,6 +55,8 @@ dependencies:
   flutter_dotenv: ^5.1.0
   # 版本信息和自动更新
   package_info_plus: ^8.0.2
+  # Google Fonts - 优质字体库
+  google_fonts: ^6.2.1
 
 dev_dependencies:
   flutter_test:

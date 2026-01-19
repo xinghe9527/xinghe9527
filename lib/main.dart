@@ -13,6 +13,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'services/index.dart';
 import 'services/update_service.dart';
 import 'services/api_manager.dart';
@@ -1641,6 +1642,9 @@ class _AnimeAppState extends State<AnimeApp> with WidgetsBindingObserver {
               primary: AnimeColors.purple,
               secondary: AnimeColors.miku,
             ),
+            // 全局字体设置 - 使用思源黑体（优雅的中文字体）
+            fontFamily: GoogleFonts.notoSansSc().fontFamily,
+            textTheme: GoogleFonts.notoSansScTextTheme(ThemeData.dark().textTheme),
           ),
           home: HomePage(),
         );
@@ -12720,10 +12724,11 @@ class _DrawingSpaceWidgetState extends State<DrawingSpaceWidget> {
               ),
             )
           : GridView.builder(
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
+              gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent: 150, // 和创作空间一样的小卡片尺寸
+                crossAxisSpacing: 16,
+                mainAxisSpacing: 16,
+                childAspectRatio: 0.78, // 保持和创作空间一致的宽高比
               ),
               itemCount: _generatedImages.length,
               itemBuilder: (context, index) {
@@ -14449,15 +14454,14 @@ class _VideoListWidget extends StatelessWidget {
           
           return LayoutBuilder(
             builder: (context, constraints) {
-              final crossAxisCount = constraints.maxWidth > 800 ? 3 : 2;
               final totalItems = activeTasks.length + failedTasks.length + generatedVideos.length;
               
               return GridView.builder(
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: crossAxisCount,
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                  childAspectRatio: 16 / 9,
+                gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                  maxCrossAxisExtent: 150, // 和创作空间、绘图空间保持一致
+                  crossAxisSpacing: 16,
+                  mainAxisSpacing: 16,
+                  childAspectRatio: 0.78, // 统一的卡片尺寸
                 ),
                 itemCount: totalItems,
                 itemBuilder: (context, index) {
