@@ -387,6 +387,11 @@ class GeneratedMediaManager extends ChangeNotifier {
       }
     }
     
+    // 添加创建时间戳，用于排序
+    if (!video.containsKey('createdAt')) {
+      video['createdAt'] = DateTime.now().toIso8601String();
+    }
+    
     _generatedVideos.insert(0, video);
     notifyListeners();
     await _saveMedia();
@@ -1512,47 +1517,77 @@ void showImageViewer(BuildContext context, {String? imagePath, String? imageUrl}
       insetPadding: EdgeInsets.all(20),
       child: Stack(
         children: [
-          // 图片
+          // 图片（支持右键复制）
           Center(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: imagePath != null
-                  ? Image.file(
-                      File(imagePath),
-                      fit: BoxFit.contain,
-                      errorBuilder: (_, __, ___) => Container(
-                        padding: EdgeInsets.all(40),
-                        decoration: BoxDecoration(
-                          color: AnimeColors.cardBg,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Icon(Icons.broken_image, color: Colors.white38, size: 60),
+            child: GestureDetector(
+              // 右键菜单
+              onSecondaryTapDown: (details) async {
+                final RenderBox overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+                
+                await showMenu(
+                  context: context,
+                  position: RelativeRect.fromRect(
+                    details.globalPosition & Size(40, 40),
+                    Offset.zero & overlay.size,
+                  ),
+                  items: [
+                    PopupMenuItem(
+                      child: Row(
+                        children: [
+                          Icon(Icons.content_copy, size: 18, color: AnimeColors.miku),
+                          SizedBox(width: 12),
+                          Text('复制图片'),
+                        ],
                       ),
-                    )
-                  : imageUrl != null
-                      ? buildImageWidget(
-                          imageUrl: imageUrl,
-                          fit: BoxFit.contain,
-                          errorBuilder: (_, __, ___) => Container(
-                            padding: EdgeInsets.all(40),
-                            decoration: BoxDecoration(
-                              color: AnimeColors.cardBg,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Icon(Icons.broken_image, color: Colors.white38, size: 60),
-                          ),
-                          loadingBuilder: (context, child, progress) {
-                            if (progress == null) return child;
-                            return Container(
-                              padding: EdgeInsets.all(40),
-                              child: CircularProgressIndicator(color: AnimeColors.miku),
-                            );
-                          },
-                        )
-                      : Container(
+                      onTap: () async {
+                        // 延迟执行，等待菜单关闭
+                        await Future.delayed(Duration(milliseconds: 100));
+                        await _copyImageToClipboardFromViewer(context, imagePath: imagePath, imageUrl: imageUrl);
+                      },
+                    ),
+                  ],
+                );
+              },
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: imagePath != null
+                    ? Image.file(
+                        File(imagePath),
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => Container(
                           padding: EdgeInsets.all(40),
-                          child: Icon(Icons.image_not_supported, color: Colors.white38, size: 60),
+                          decoration: BoxDecoration(
+                            color: AnimeColors.cardBg,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(Icons.broken_image, color: Colors.white38, size: 60),
                         ),
+                      )
+                    : imageUrl != null
+                        ? buildImageWidget(
+                            imageUrl: imageUrl,
+                            fit: BoxFit.contain,
+                            errorBuilder: (_, __, ___) => Container(
+                              padding: EdgeInsets.all(40),
+                              decoration: BoxDecoration(
+                                color: AnimeColors.cardBg,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Icon(Icons.broken_image, color: Colors.white38, size: 60),
+                            ),
+                            loadingBuilder: (context, child, progress) {
+                              if (progress == null) return child;
+                              return Container(
+                                padding: EdgeInsets.all(40),
+                                child: CircularProgressIndicator(color: AnimeColors.miku),
+                              );
+                            },
+                          )
+                        : Container(
+                            padding: EdgeInsets.all(40),
+                            child: Icon(Icons.image_not_supported, color: Colors.white38, size: 60),
+                          ),
+              ),
             ),
           ),
           // 关闭按钮
@@ -1576,6 +1611,85 @@ void showImageViewer(BuildContext context, {String? imagePath, String? imageUrl}
       ),
     ),
   );
+}
+
+// 从图片查看器复制图片（辅助函数）
+Future<void> _copyImageToClipboardFromViewer(BuildContext context, {String? imagePath, String? imageUrl}) async {
+  try {
+    List<int> imageBytes;
+    
+    if (imagePath != null) {
+      // 本地文件
+      final file = File(imagePath);
+      if (!await file.exists()) {
+        throw '图片文件不存在';
+      }
+      imageBytes = await file.readAsBytes();
+    } else if (imageUrl != null) {
+      // 检查是否是base64数据URI格式
+      if (imageUrl.startsWith('data:image/')) {
+        final base64Index = imageUrl.indexOf('base64,');
+        if (base64Index == -1) {
+          throw '无效的Base64数据URI';
+        }
+        final base64Data = imageUrl.substring(base64Index + 7);
+        imageBytes = base64Decode(base64Data);
+      } else {
+        // HTTP URL，下载图片
+        final response = await http.get(Uri.parse(imageUrl));
+        if (response.statusCode != 200) {
+          throw '下载图片失败: ${response.statusCode}';
+        }
+        imageBytes = response.bodyBytes;
+      }
+    } else {
+      throw '没有可复制的图片';
+    }
+    
+    // 保存到临时文件并复制到剪贴板
+    final tempDir = await getTemporaryDirectory();
+    final tempFile = File('${tempDir.path}/temp_clipboard_image.png');
+    await tempFile.writeAsBytes(imageBytes);
+    
+    // 在 Windows 上，使用 PowerShell 将图片复制到剪贴板
+    if (Platform.isWindows) {
+      final result = await Process.run('powershell', [
+        '-command',
+        'Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Clipboard]::SetImage([System.Drawing.Image]::FromFile("${tempFile.path.replaceAll('/', '\\\\')}"))'
+      ]);
+      
+      if (result.exitCode == 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✅ 图片已复制到剪贴板'),
+            backgroundColor: AnimeColors.miku,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      } else {
+        throw '复制失败: ${result.stderr}';
+      }
+    } else {
+      // 其他平台暂不支持
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('⚠️ 当前平台暂不支持图片复制'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
+    
+    // 清理临时文件
+    await tempFile.delete();
+  } catch (e) {
+    print('复制图片失败: $e');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('❌ 复制失败: $e'),
+        backgroundColor: Colors.red,
+      ),
+    );
+  }
 }
 
 class AnimeApp extends StatefulWidget {
@@ -3029,7 +3143,7 @@ class _ProjectGalleryPageState extends State<ProjectGalleryPage> with SingleTick
                             shape: BoxShape.circle,
                           ),
                           child: Icon(
-                            Icons.close,
+                            Icons.delete_outline,
                             color: Colors.white,
                             size: isSmall ? 12 : 14,
                           ),
@@ -12695,7 +12809,7 @@ class _DrawingSpaceWidgetState extends State<DrawingSpaceWidget> {
   Widget _buildRightPanel() {
     return _buildSectionCard(
       title: '生成结果',
-      subtitle: '已生成 ${_generatedImages.length} 张图片',
+      subtitle: '已生成 ${_generatedImages.length} 张图片 · 点击放大，右键可复制',
       icon: Icons.photo_library_outlined,
       color: AnimeColors.blue,
       expanded: true,
@@ -12866,7 +12980,7 @@ class _DrawingSpaceWidgetState extends State<DrawingSpaceWidget> {
                 color: Colors.black.withOpacity(0.6),
                 shape: BoxShape.circle,
               ),
-              child: Icon(Icons.close, color: Colors.white, size: 14),
+              child: Icon(Icons.delete_outline, color: Colors.white, size: 14),
             ),
           ),
         ),
@@ -12921,17 +13035,9 @@ class _DrawingSpaceWidgetState extends State<DrawingSpaceWidget> {
                   color: Colors.black54,
                   shape: BoxShape.circle,
                 ),
-                child: Icon(Icons.close, color: Colors.white, size: 16),
+                child: Icon(Icons.delete_outline, color: Colors.white, size: 16),
               ),
             ),
-          ),
-          // 复制按钮（右下角）
-          Positioned(
-            bottom: 8,
-            right: 8,
-            child: _buildImageActionButton(Icons.content_copy, '复制图片', () async {
-              await _copyImageToClipboard(imageUrl);
-            }),
           ),
         ],
       ),
@@ -13024,6 +13130,7 @@ class VideoSpaceWidget extends StatefulWidget {
 class _VideoSpaceWidgetState extends State<VideoSpaceWidget> {
   String? _selectedImagePath;
   String? _selectedMaterialName; // 保存选中的素材库图片名称
+  String? _selectedCharacterId; // 保存选中素材的 characterId（如果已上传）
   bool _isFromMaterialLibrary = false; // 标记是否来自素材库
   int _selectedSizeIndex = 0;
   int _selectedDurationIndex = 1;
@@ -13064,143 +13171,16 @@ class _VideoSpaceWidgetState extends State<VideoSpaceWidget> {
     logService.action('打开素材库选择');
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: AnimeColors.cardBg,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          children: [
-            Icon(Icons.perm_media_outlined, color: AnimeColors.miku),
-            SizedBox(width: 8),
-            Text('选择素材', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
-          ],
-        ),
-        content: Container(
-          width: 600,
-          height: 400,
-          child: FutureBuilder(
-            future: _loadAllMaterials(),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return Center(child: CircularProgressIndicator(color: AnimeColors.miku));
-              }
-              
-              final allMaterials = snapshot.data ?? [];
-              
-              if (allMaterials.isEmpty) {
-                return Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.folder_open_outlined, size: 60, color: Colors.white24),
-                      SizedBox(height: 16),
-                      Text('素材库为空', style: TextStyle(color: Colors.white54)),
-                      SizedBox(height: 8),
-                      Text('请先在素材库中添加素材', style: TextStyle(color: Colors.white38, fontSize: 12)),
-                    ],
-                  ),
-                );
-              }
-              
-              return GridView.builder(
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 4,
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                  childAspectRatio: 0.85,
-                ),
-                itemCount: allMaterials.length,
-                itemBuilder: (context, index) {
-                  final material = allMaterials[index];
-                  final materialName = material['name'] ?? '未命名';
-                  return InkWell(
-                    onTap: () {
-                      setState(() {
-                        _selectedImagePath = material['path'];
-                        _selectedMaterialName = materialName; // 保存素材库图片名称
-                        _isFromMaterialLibrary = true; // 标记为素材库
-                      });
-                      logService.action('从素材库选择图片', details: materialName);
-                      Navigator.pop(context);
-                    },
-                    borderRadius: BorderRadius.circular(12),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: AnimeColors.darkBg,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.white.withOpacity(0.1)),
-                      ),
-                      child: Column(
-                        children: [
-                          Expanded(
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
-                              child: InkWell(
-                                onTap: material['path'] != null 
-                                    ? () => showImageViewer(context, imagePath: material['path'])
-                                    : null,
-                                child: material['path'] != null
-                                    ? Image.file(
-                                        File(material['path']!),
-                                        fit: BoxFit.contain,
-                                        width: double.infinity,
-                                        errorBuilder: (_, __, ___) => Container(
-                                          color: AnimeColors.purple.withOpacity(0.2),
-                                          child: Icon(Icons.image_outlined, color: Colors.white38, size: 32),
-                                        ),
-                                      )
-                                    : Container(
-                                        color: AnimeColors.purple.withOpacity(0.2),
-                                        child: Icon(Icons.image_outlined, color: Colors.white38, size: 32),
-                                      ),
-                              ),
-                            ),
-                          ),
-                          Padding(
-                            padding: EdgeInsets.all(8),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: SelectableText(
-                                    materialName,
-                                    style: TextStyle(color: Colors.white70, fontSize: 11),
-                                    maxLines: 1,
-                                  ),
-                                ),
-                                SizedBox(width: 4),
-                                Tooltip(
-                                  message: '复制名称',
-                                  child: InkWell(
-                                    onTap: () {
-                                      Clipboard.setData(ClipboardData(text: materialName));
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(
-                                          content: Text('已复制: $materialName'),
-                                          backgroundColor: AnimeColors.miku,
-                                          duration: Duration(seconds: 2),
-                                        ),
-                                      );
-                                    },
-                                    child: Icon(Icons.copy, size: 14, color: Colors.white54),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              );
-            },
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('取消', style: TextStyle(color: Colors.white54)),
-          ),
-        ],
+      builder: (context) => _MaterialPickerDialog(
+        onMaterialSelected: (material) {
+          setState(() {
+            _selectedImagePath = material['path'];
+            _selectedMaterialName = material['name'] ?? '未命名';
+            _selectedCharacterId = material['characterId']; // 保存 characterId
+            _isFromMaterialLibrary = true;
+          });
+          logService.action('从素材库选择图片', details: '名称: ${material['name']}, CharacterID: ${material['characterId'] ?? "无"}');
+        },
       ),
     );
   }
@@ -13294,18 +13274,45 @@ class _VideoSpaceWidgetState extends State<VideoSpaceWidget> {
         // 异步执行，不阻塞UI
         Future(() async {
           try {
-            // 如果选择的是素材库图片，使用characterUrl传递图片名称
-            // 否则使用inputReference传递图片文件
+            // 处理图片输入和提示词：
+            // 1. 如果是素材库图片且已上传（有 characterId）：
+            //    - 只在提示词中添加角色名称（@username）
+            //    - 不传递 characterUrl 或 inputReference（根据 sora API 文档）
+            // 2. 如果是素材库图片但未上传，或本地上传的图片：
+            //    - 使用 inputReference 传递文件
             String? characterUrl;
             File? inputReference;
             
+            // 准备提示词：如果使用已上传的角色，在提示词前添加角色名称
+            String finalPrompt = _promptController.text;
+            
             if (_selectedImagePath != null) {
-              if (_isFromMaterialLibrary && _selectedMaterialName != null) {
-                // 来自素材库，使用characterUrl传递名称
-                characterUrl = _selectedMaterialName;
-                print('[VideoSpace] 使用素材库图片名称: $characterUrl');
+              if (_isFromMaterialLibrary) {
+                // 来自素材库
+                if (_selectedCharacterId != null && _selectedCharacterId!.isNotEmpty) {
+                  // 如果素材已上传并有 characterId，只在提示词中添加名称
+                  // 根据 sora API 文档，已创建的角色只需要在提示词中使用 @username 即可
+                  // 不需要传递 characterUrl（那是用于创建新角色的视频链接）
+                  
+                  // 在提示词前添加角色名称
+                  if (_selectedMaterialName != null && _selectedMaterialName!.isNotEmpty) {
+                    if (finalPrompt.isNotEmpty) {
+                      finalPrompt = '$_selectedMaterialName, $finalPrompt';
+                    } else {
+                      finalPrompt = _selectedMaterialName!;
+                    }
+                  }
+                  
+                  print('[VideoSpace] 使用已上传角色，角色名称: $_selectedMaterialName');
+                  print('[VideoSpace] 完整提示词（包含角色名称）: $finalPrompt');
+                  print('[VideoSpace] 注意：不传递 characterUrl 或 inputReference');
+                } else {
+                  // 素材未上传，使用本地文件
+                  inputReference = File(_selectedImagePath!);
+                  print('[VideoSpace] 素材库图片未上传，使用本地文件: ${inputReference.path}');
+                }
               } else {
-                // 本地文件，使用inputReference传递文件
+                // 本地上传的文件，使用inputReference传递文件
                 inputReference = File(_selectedImagePath!);
                 print('[VideoSpace] 使用本地图片文件: ${inputReference.path}');
               }
@@ -13313,11 +13320,11 @@ class _VideoSpaceWidgetState extends State<VideoSpaceWidget> {
             
             final response = await apiService.createVideo(
               model: apiConfigManager.videoModel,
-              prompt: _promptController.text,
+              prompt: finalPrompt, // 使用拼接后的提示词（已包含角色名称）
               size: '${selectedSize.width}x${selectedSize.height}',
               seconds: seconds,
-              inputReference: inputReference,
-              characterUrl: characterUrl, // 如果来自素材库，传递图片名称
+              inputReference: inputReference, // 只在使用本地/未上传图片时传递
+              characterUrl: characterUrl, // 不再传递（已上传角色只需提示词）
             );
             
             // CRITICAL: 用真实任务ID替换临时占位符
@@ -13444,19 +13451,20 @@ class _VideoSpaceWidgetState extends State<VideoSpaceWidget> {
                                                 Positioned(
                                                   top: 8,
                                                   right: 8,
-                                                  child: InkWell(
-                                                    onTap: () => setState(() {
-                                                      _selectedImagePath = null;
-                                                      _selectedMaterialName = null;
-                                                      _isFromMaterialLibrary = false;
-                                                    }),
+                                  child: InkWell(
+                                    onTap: () => setState(() {
+                                      _selectedImagePath = null;
+                                      _selectedMaterialName = null;
+                                      _selectedCharacterId = null;
+                                      _isFromMaterialLibrary = false;
+                                    }),
                                                     child: Container(
                                                       padding: EdgeInsets.all(6),
                                                       decoration: BoxDecoration(
                                                         color: Colors.black54,
                                                         shape: BoxShape.circle,
                                                       ),
-                                                      child: Icon(Icons.close, color: Colors.white, size: 16),
+                                                      child: Icon(Icons.delete_outline, color: Colors.white, size: 16),
                                                     ),
                                                   ),
                                                 ),
@@ -14100,7 +14108,7 @@ class _VideoCardWidgetState extends State<_VideoCardWidget> {
                     color: Colors.black54,
                     shape: BoxShape.circle,
                   ),
-                  child: Icon(Icons.close, color: Colors.white, size: 16),
+                  child: Icon(Icons.delete_outline, color: Colors.white, size: 16),
                 ),
               ),
             ),
@@ -14275,7 +14283,7 @@ class _FailedVideoCardWidget extends StatelessWidget {
                   color: Colors.black54,
                   shape: BoxShape.circle,
                 ),
-                child: Icon(Icons.close, color: Colors.white, size: 16),
+                child: Icon(Icons.delete_outline, color: Colors.white, size: 16),
               ),
             ),
           ),
@@ -14376,12 +14384,272 @@ class _GeneratingVideoCardWidget extends StatelessWidget {
                   color: Colors.black54,
                   shape: BoxShape.circle,
                 ),
-                child: Icon(Icons.close, color: Colors.white, size: 16),
+                child: Icon(Icons.delete_outline, color: Colors.white, size: 16),
               ),
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+// ==================== 素材选择对话框（带分类） ====================
+class _MaterialPickerDialog extends StatefulWidget {
+  final Function(Map<String, String> material) onMaterialSelected;
+  
+  const _MaterialPickerDialog({required this.onMaterialSelected});
+  
+  @override
+  _MaterialPickerDialogState createState() => _MaterialPickerDialogState();
+}
+
+class _MaterialPickerDialogState extends State<_MaterialPickerDialog> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  Map<String, List<Map<String, String>>> _characterMaterials = {};
+  List<Map<String, String>> _sceneMaterials = [];
+  List<Map<String, String>> _propMaterials = [];
+  bool _isLoading = true;
+  
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 3, vsync: this);
+    _loadMaterials();
+  }
+  
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+  
+  Future<void> _loadMaterials() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      // 加载角色素材
+      final charJson = prefs.getString('character_materials');
+      if (charJson != null) {
+        final decoded = jsonDecode(charJson) as Map<String, dynamic>;
+        _characterMaterials = decoded.map((key, value) => 
+          MapEntry(key, (value as List).map((e) => Map<String, String>.from(e)).toList()));
+      }
+      
+      // 加载场景素材
+      final sceneJson = prefs.getString('scene_materials');
+      if (sceneJson != null) {
+        _sceneMaterials = (jsonDecode(sceneJson) as List).map((e) => Map<String, String>.from(e)).toList();
+      }
+      
+      // 加载物品素材
+      final propJson = prefs.getString('prop_materials');
+      if (propJson != null) {
+        _propMaterials = (jsonDecode(propJson) as List).map((e) => Map<String, String>.from(e)).toList();
+      }
+      
+      setState(() => _isLoading = false);
+    } catch (e) {
+      print('加载素材失败: $e');
+      setState(() => _isLoading = false);
+    }
+  }
+  
+  List<Map<String, String>> _getAllCharacterMaterials() {
+    final List<Map<String, String>> allChars = [];
+    _characterMaterials.forEach((key, value) {
+      allChars.addAll(value);
+    });
+    return allChars;
+  }
+  
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      child: Container(
+        width: 700,
+        height: 600,
+        decoration: BoxDecoration(
+          color: AnimeColors.cardBg,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.white.withOpacity(0.1), width: 1.5),
+        ),
+        child: Column(
+          children: [
+            // 标题栏
+            Container(
+              padding: EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.1))),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.perm_media_outlined, color: AnimeColors.miku, size: 24),
+                  SizedBox(width: 12),
+                  Text(
+                    '选择素材',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  Spacer(),
+                  IconButton(
+                    icon: Icon(Icons.close, color: Colors.white54),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+            
+            // 分类标签栏
+            Container(
+              decoration: BoxDecoration(
+                color: AnimeColors.darkBg,
+                border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.1))),
+              ),
+              child: TabBar(
+                controller: _tabController,
+                indicator: BoxDecoration(
+                  gradient: LinearGradient(colors: [AnimeColors.miku, AnimeColors.purple]),
+                  borderRadius: BorderRadius.vertical(bottom: Radius.circular(4)),
+                ),
+                labelColor: Colors.white,
+                unselectedLabelColor: Colors.white54,
+                labelStyle: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                tabs: [
+                  Tab(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.person_outlined, size: 18),
+                        SizedBox(width: 8),
+                        Text('角色素材'),
+                      ],
+                    ),
+                  ),
+                  Tab(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.landscape_outlined, size: 18),
+                        SizedBox(width: 8),
+                        Text('场景素材'),
+                      ],
+                    ),
+                  ),
+                  Tab(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.category_outlined, size: 18),
+                        SizedBox(width: 8),
+                        Text('物品素材'),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            
+            // 内容区域
+            Expanded(
+              child: _isLoading
+                  ? Center(child: CircularProgressIndicator(color: AnimeColors.miku))
+                  : TabBarView(
+                      controller: _tabController,
+                      children: [
+                        _buildMaterialGrid(_getAllCharacterMaterials(), '角色'),
+                        _buildMaterialGrid(_sceneMaterials, '场景'),
+                        _buildMaterialGrid(_propMaterials, '物品'),
+                      ],
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  Widget _buildMaterialGrid(List<Map<String, String>> materials, String type) {
+    if (materials.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.folder_open_outlined, size: 60, color: Colors.white24),
+            SizedBox(height: 16),
+            Text('暂无${type}素材', style: TextStyle(color: Colors.white54, fontSize: 16)),
+            SizedBox(height: 8),
+            Text('请先在素材库中添加素材', style: TextStyle(color: Colors.white38, fontSize: 12)),
+          ],
+        ),
+      );
+    }
+    
+    return GridView.builder(
+      padding: EdgeInsets.all(16),
+      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 150, // 和绘图空间、创作空间统一
+        crossAxisSpacing: 16,
+        mainAxisSpacing: 16,
+        childAspectRatio: 0.78, // 保持统一的宽高比
+      ),
+      itemCount: materials.length,
+      itemBuilder: (context, index) {
+        final material = materials[index];
+        final materialName = material['name'] ?? '未命名';
+        
+        return InkWell(
+          onTap: () {
+            widget.onMaterialSelected(material);
+            Navigator.pop(context);
+          },
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            decoration: BoxDecoration(
+              color: AnimeColors.darkBg,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.white.withOpacity(0.1)),
+            ),
+            child: Column(
+              children: [
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+                    child: material['path'] != null
+                        ? Image.file(
+                            File(material['path']!),
+                            fit: BoxFit.cover,
+                            width: double.infinity,
+                            errorBuilder: (_, __, ___) => Container(
+                              color: AnimeColors.purple.withOpacity(0.2),
+                              child: Icon(Icons.image_outlined, color: Colors.white38, size: 32),
+                            ),
+                          )
+                        : Container(
+                            color: AnimeColors.purple.withOpacity(0.2),
+                            child: Icon(Icons.image_outlined, color: Colors.white38, size: 32),
+                          ),
+                  ),
+                ),
+                Container(
+                  padding: EdgeInsets.all(8),
+                  child: Text(
+                    materialName,
+                    style: TextStyle(color: Colors.white70, fontSize: 11),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -14454,7 +14722,46 @@ class _VideoListWidget extends StatelessWidget {
           
           return LayoutBuilder(
             builder: (context, constraints) {
-              final totalItems = activeTasks.length + failedTasks.length + generatedVideos.length;
+              // 合并所有项目并按时间排序（最新的在前）
+              final List<Map<String, dynamic>> allItems = [];
+              
+              // 添加正在生成的任务
+              for (var task in activeTasks) {
+                allItems.add({
+                  'type': 'active',
+                  'data': task,
+                  'timestamp': task['createdAt'] ?? DateTime.now().toIso8601String(),
+                });
+              }
+              
+              // 添加失败的任务
+              for (var task in failedTasks) {
+                allItems.add({
+                  'type': 'failed',
+                  'data': task,
+                  'timestamp': task['failedAt'] ?? task['createdAt'] ?? DateTime.now().toIso8601String(),
+                });
+              }
+              
+              // 添加已完成的视频
+              for (var video in generatedVideos) {
+                allItems.add({
+                  'type': 'completed',
+                  'data': video,
+                  'timestamp': video['createdAt'] ?? DateTime.now().toIso8601String(),
+                });
+              }
+              
+              // 按时间排序（最新的在前）
+              allItems.sort((a, b) {
+                try {
+                  final timeA = DateTime.parse(a['timestamp']);
+                  final timeB = DateTime.parse(b['timestamp']);
+                  return timeB.compareTo(timeA); // 降序：新的在前
+                } catch (e) {
+                  return 0;
+                }
+              });
               
               return GridView.builder(
                 gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
@@ -14463,41 +14770,39 @@ class _VideoListWidget extends StatelessWidget {
                   mainAxisSpacing: 16,
                   childAspectRatio: 0.78, // 统一的卡片尺寸
                 ),
-                itemCount: totalItems,
+                itemCount: allItems.length,
                 itemBuilder: (context, index) {
-                  // 正在生成的视频任务（显示在最前面）
-                  if (index < activeTasks.length) {
-                    final task = activeTasks[index];
-                    final progress = task['progress'] as int? ?? 0;
-                    final status = task['status'] as String? ?? '准备中';
-                    final taskId = task['id'] as String;
-                    return _GeneratingVideoCardWidget(
-                      progress: progress,
-                      status: status,
-                      taskId: taskId,
-                    );
-                  }
+                  final item = allItems[index];
+                  final type = item['type'] as String;
+                  final data = item['data'] as Map<String, dynamic>;
                   
-                  // 失败的任务（显示在中间）
-                  final failedIndex = index - activeTasks.length;
-                  if (failedIndex < failedTasks.length) {
-                    final failedTask = failedTasks[failedIndex];
-                    return _FailedVideoCardWidget(task: failedTask);
+                  switch (type) {
+                    case 'active':
+                      // 正在生成的任务
+                      final progress = data['progress'] as int? ?? 0;
+                      final status = data['status'] as String? ?? '准备中';
+                      final taskId = data['id'] as String;
+                      return _GeneratingVideoCardWidget(
+                        progress: progress,
+                        status: status,
+                        taskId: taskId,
+                      );
+                    
+                    case 'failed':
+                      // 失败的任务
+                      return _FailedVideoCardWidget(task: data);
+                    
+                    case 'completed':
+                      // 已完成的视频
+                      final videoId = data['id'] ?? data['url'] ?? 'video_$index';
+                      return _VideoCardWidget(
+                        key: ValueKey(videoId),
+                        video: data,
+                      );
+                    
+                    default:
+                      return SizedBox.shrink();
                   }
-                  
-                  // 已完成的视频（显示在最后）
-                  final videoIndex = index - activeTasks.length - failedTasks.length;
-                  if (videoIndex < generatedVideos.length) {
-                    final video = generatedVideos[videoIndex];
-                    // CRITICAL: 使用 key 确保 Widget 正确识别和更新
-                    final videoId = video['id'] ?? video['url'] ?? 'video_$videoIndex';
-                    return _VideoCardWidget(
-                      key: ValueKey(videoId),
-                      video: video,
-                    );
-                  }
-                  
-                  return SizedBox.shrink();
                 },
               );
             },
@@ -15033,11 +15338,11 @@ class _MaterialsLibraryWidgetState extends State<MaterialsLibraryWidget> with Si
                       )
                     : GridView.builder(
                         padding: EdgeInsets.all(16),
-                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 4,
-                          crossAxisSpacing: 12,
-                          mainAxisSpacing: 12,
-                          childAspectRatio: 0.85,
+                        gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                          maxCrossAxisExtent: 150, // 和绘图空间、创作空间统一
+                          crossAxisSpacing: 16,
+                          mainAxisSpacing: 16,
+                          childAspectRatio: 0.78, // 保持统一的宽高比
                         ),
                         itemCount: materials.length,
                         itemBuilder: (context, index) {
@@ -15103,7 +15408,7 @@ class _MaterialsLibraryWidgetState extends State<MaterialsLibraryWidget> with Si
                           color: Colors.black.withOpacity(0.6),
                           shape: BoxShape.circle,
                         ),
-                        child: Icon(Icons.close, color: Colors.white, size: 14),
+                        child: Icon(Icons.delete_outline, color: Colors.white, size: 14),
                       ),
                     ),
                   ),
