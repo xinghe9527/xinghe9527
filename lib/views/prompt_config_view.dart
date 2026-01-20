@@ -243,6 +243,8 @@ class _PromptConfigViewState extends State<PromptConfigView> {
 
   Color _getCategoryColor(PromptCategory category) {
     switch (category) {
+      case PromptCategory.llm:
+        return Color(0xFF00D4AA); // Miku Green (新增 LLM 类别)
       case PromptCategory.script:
         return Color(0xFF00D4FF); // Blue
       case PromptCategory.character:
@@ -403,6 +405,8 @@ class _PromptConfigViewState extends State<PromptConfigView> {
 
   IconData _getCategoryIcon(PromptCategory category) {
     switch (category) {
+      case PromptCategory.llm:
+        return Icons.auto_awesome; // LLM 提示词图标（新增）
       case PromptCategory.script:
         return Icons.description_outlined;
       case PromptCategory.character:

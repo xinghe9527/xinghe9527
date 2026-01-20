@@ -1,5 +1,6 @@
 /// 提示词模板类别枚举
 enum PromptCategory {
+  llm('llm', 'LLM提示词'),           // LLM通用提示词（新增）
   script('script', '剧本生成'),
   character('character', '角色生成'),
   storyboard('storyboard', '分镜生成'),

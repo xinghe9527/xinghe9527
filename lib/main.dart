@@ -20,6 +20,7 @@ import 'services/api_manager.dart';
 import 'save_settings_panel.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'services/prompt_store.dart';
+import 'models/prompt_template.dart';
 import 'views/prompt_config_view.dart';
 import 'views/auto_mode_screen.dart';
 import 'logic/auto_mode_provider.dart';
@@ -4624,21 +4625,71 @@ class StoryGenerationPanel extends StatefulWidget {
 class _StoryGenerationPanelState extends State<StoryGenerationPanel> {
   final TextEditingController _storyController = TextEditingController();
   bool _isLoading = false;
+  bool _isLoadingTemplates = true; // 模板加载状态
   String? _generatedStory;
-  String? _selectedTemplate; // 选中的提示词模板名称
-  Map<String, String> _promptTemplates = {}; // 提示词模板列表（合并所有类别）
+  String? _selectedTemplateId; // 选中的模板ID
+  List<PromptTemplate> _availableTemplates = []; // 从 PromptStore 加载的模板列表
 
   @override
   void initState() {
     super.initState();
-    _loadPromptTemplates();
-    _loadSelectedTemplate();
+    _loadTemplatesFromPromptStore(); // 从 PromptStore 加载模板
     _loadSavedContent(); // 加载保存的内容
+    
+    // 监听 PromptStore 变化，当用户在设置中修改提示词时自动更新
+    promptStore.addListener(_onPromptStoreChanged);
+  }
+  
+  /// 当 PromptStore 发生变化时重新加载模板
+  void _onPromptStoreChanged() {
+    _loadTemplatesFromPromptStore();
+  }
+  
+  /// 从 PromptStore 加载 LLM 类别的提示词模板
+  Future<void> _loadTemplatesFromPromptStore() async {
+    try {
+      setState(() {
+        _isLoadingTemplates = true;
+      });
+      
+      // 确保 PromptStore 已初始化
+      if (!promptStore.isInitialized) {
+        await promptStore.initialize();
+      }
+      
+      // 获取 LLM 类别的所有模板
+      final templates = promptStore.getTemplates(PromptCategory.llm);
+      
+      if (mounted) {
+        setState(() {
+          _availableTemplates = templates;
+          _isLoadingTemplates = false;
+        });
+        
+        logService.info('已加载 LLM 提示词模板', details: '共 ${templates.length} 个模板');
+        
+        // 如果模板列表为空，给出提示
+        if (templates.isEmpty) {
+          logService.info('LLM 提示词模板列表为空', details: '请在设置中添加 LLM 提示词模板');
+        }
+      }
+      
+      // 加载保存的模板选择（在模板加载完成后）
+      _loadSelectedTemplateId();
+    } catch (e) {
+      logService.error('加载提示词模板失败', details: e.toString());
+      if (mounted) {
+        setState(() {
+          _isLoadingTemplates = false;
+        });
+      }
+    }
   }
 
   @override
   void dispose() {
     _saveTimer?.cancel(); // CRITICAL: 取消定时器，防止内存泄漏
+    promptStore.removeListener(_onPromptStoreChanged); // 移除监听器
     _storyController.dispose();
     super.dispose();
   }
@@ -4684,105 +4735,117 @@ class _StoryGenerationPanelState extends State<StoryGenerationPanel> {
     });
   }
 
-  // 加载提示词模板（从所有类别加载，优先使用图片提示词）
-  Future<void> _loadPromptTemplates() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final promptsJson = prefs.getString('prompts');
-      if (promptsJson != null) {
-        final decoded = jsonDecode(promptsJson) as Map<String, dynamic>;
-        // 合并所有类别的提示词，优先使用图片提示词
-        final allPrompts = <String, String>{};
-        // 按优先级顺序加载：image > character > scene > video > prop
-        final categories = ['image', 'character', 'scene', 'video', 'prop'];
-        for (final category in categories) {
-          final categoryPrompts = Map<String, String>.from(decoded[category] ?? {});
-          categoryPrompts.forEach((key, value) {
-            if (!allPrompts.containsKey(key)) {
-              allPrompts[key] = value;
-            }
-          });
-        }
-        setState(() {
-          _promptTemplates = allPrompts;
-        });
-      }
-    } catch (e) {
-      logService.error('加载提示词模板失败', details: e.toString());
-    }
-  }
-
   // 加载保存的模板选择
-  Future<void> _loadSelectedTemplate() async {
+  Future<void> _loadSelectedTemplateId() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final savedTemplate = prefs.getString('story_selected_template');
-      if (savedTemplate != null && savedTemplate.isNotEmpty) {
-        setState(() {
-          _selectedTemplate = savedTemplate;
-        });
+      final savedTemplateId = prefs.getString('story_selected_template_id');
+      if (savedTemplateId != null && savedTemplateId.isNotEmpty && mounted) {
+        // 验证模板ID是否存在于可用模板列表中
+        final templateExists = _availableTemplates.any((t) => t.id == savedTemplateId);
+        if (templateExists) {
+          setState(() {
+            _selectedTemplateId = savedTemplateId;
+          });
+        } else {
+          // 如果之前保存的模板不存在了，清除选择
+          await prefs.remove('story_selected_template_id');
+        }
       }
     } catch (e) {
       logService.error('加载保存的模板选择失败', details: e.toString());
     }
   }
 
-
   // 保存模板选择
-  Future<void> _saveSelectedTemplate() async {
+  Future<void> _saveSelectedTemplateId() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      if (_selectedTemplate != null) {
-        await prefs.setString('story_selected_template', _selectedTemplate!);
+      if (_selectedTemplateId != null) {
+        await prefs.setString('story_selected_template_id', _selectedTemplateId!);
       } else {
-        await prefs.remove('story_selected_template');
+        await prefs.remove('story_selected_template_id');
       }
-      logService.info('保存模板选择', details: _selectedTemplate ?? '不使用模板');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('模板选择已保存'),
-            backgroundColor: AnimeColors.miku,
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
+      logService.info('保存模板选择', details: _selectedTemplateId ?? '不使用模板');
     } catch (e) {
       logService.error('保存模板选择失败', details: e.toString());
     }
   }
-
+  
+  // 获取当前选中的模板
+  PromptTemplate? get _currentTemplate {
+    if (_selectedTemplateId == null || _availableTemplates.isEmpty) return null;
+    try {
+      return _availableTemplates.firstWhere(
+        (t) => t.id == _selectedTemplateId,
+        orElse: () => _availableTemplates.first,
+      );
+    } catch (e) {
+      return null;
+    }
+  }
+  
+  // 获取选中模板的名称
+  String _getSelectedTemplateName() {
+    if (_selectedTemplateId == null) return '提示词模板';
+    try {
+      final template = _availableTemplates.firstWhere(
+        (t) => t.id == _selectedTemplateId,
+      );
+      return template.name;
+    } catch (e) {
+      return '提示词模板';
+    }
+  }
+  
   // 显示模板选择对话框
-  void _showTemplateSelector() {
+  void _showStoryTemplateSelector() {
     showDialog(
       context: context,
-      builder: (context) => _PromptTemplateManagerDialog(
-        category: 'story',
-        selectedTemplate: _selectedTemplate,
-        accentColor: AnimeColors.miku,
-        onSelect: (template) {
+      builder: (context) => _LLMTemplatePickerDialog(
+        availableTemplates: _availableTemplates,
+        selectedTemplateId: _selectedTemplateId,
+        onSelect: (templateId) {
           setState(() {
-            _selectedTemplate = template;
+            _selectedTemplateId = templateId;
           });
-          if (template != null) {
-            _saveSelectedTemplate();
+          _saveSelectedTemplateId();
+          
+          if (mounted) {
+            String templateName = templateId == null ? '不使用模板' : _getSelectedTemplateName();
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('已选择模板：$templateName'),
+                backgroundColor: AnimeColors.miku,
+                duration: Duration(seconds: 2),
+              ),
+            );
           }
         },
-        onSave: () {
-          _loadPromptTemplates();
+        onManageTemplates: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const PromptConfigView()),
+          ).then((_) {
+            // 从设置返回后重新加载模板
+            _loadTemplatesFromPromptStore();
+          });
         },
       ),
     );
   }
 
   Future<void> _generateStory() async {
-    if (_storyController.text.isEmpty) {
+    // 1. 验证输入
+    if (_storyController.text.trim().isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('请先输入一句话生成剧本')),
+        SnackBar(content: Text('请先输入故事创意或大纲')),
       );
       return;
     }
+    
+    // 2. 验证API配置
     if (!apiConfigManager.hasLlmConfig) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -4790,23 +4853,46 @@ class _StoryGenerationPanelState extends State<StoryGenerationPanel> {
       );
       return;
     }
+    
     if (!mounted) return;
     setState(() => _isLoading = true);
+    
     try {
       final apiService = apiConfigManager.createApiService();
+      final userInput = _storyController.text.trim();
       
-      // 构建系统提示词
-      String systemPrompt = '你是一个专业的剧本作家，擅长创作动漫故事。请根据用户提供的大纲，生成一个完整、生动的剧本。';
+      // 3. 获取当前选中的模板
+      final template = _currentTemplate;
       
-      // 如果选择了模板，在系统提示词后加上模板内容
-      if (_selectedTemplate != null && _promptTemplates.containsKey(_selectedTemplate)) {
-        final templateContent = _promptTemplates[_selectedTemplate]!;
-        if (templateContent.isNotEmpty) {
-          systemPrompt = '$systemPrompt\n\n$templateContent';
+      // 4. 构建用户提示词
+      String userPrompt;
+      
+      if (template != null) {
+        // 使用模板的 content 字段
+        final templateContent = template.content;
+        
+        // 如果包含 {{input}} 占位符，则替换
+        if (templateContent.contains('{{input}}')) {
+          userPrompt = templateContent.replaceAll('{{input}}', userInput);
+        } else {
+          // 如果不包含占位符，则将用户输入拼接到模板后面
+          userPrompt = '$templateContent\n\n用户输入：\n$userInput';
         }
+        
+        logService.info('使用故事模板', details: '模板: ${template.name} (ID: ${template.id})');
+      } else {
+        // 没有选择模板，使用默认提示词
+        userPrompt = '请根据以下创意生成一个完整的动漫故事：\n\n$userInput\n\n请包含：故事背景、主要情节、角色发展、高潮和结局。';
+        
+        logService.info('使用默认故事生成', details: '未选择模板');
       }
       
-      // 添加重试机制（最多重试3次）
+      // 5. 系统提示词（统一）
+      final systemPrompt = '你是一个专业的故事创作者，擅长创作动漫故事。请根据用户提供的创意，生成一个完整、生动、引人入胜的故事。';
+      
+      logService.info('开始生成故事', details: '模型: ${apiConfigManager.llmModel}');
+      
+      // 6. 调用 API（带重试机制）
       int maxRetries = 3;
       int retryCount = 0;
       ChatCompletionResponse? response;
@@ -4818,11 +4904,11 @@ class _StoryGenerationPanelState extends State<StoryGenerationPanel> {
             messages: [
               {
                 'role': 'system',
-                'content': systemPrompt
+                'content': systemPrompt,
               },
               {
                 'role': 'user',
-                'content': '请根据以下大纲生成一个完整的动漫剧本：\n\n${_storyController.text}'
+                'content': userPrompt,
               },
             ],
             temperature: 0.7,
@@ -4854,19 +4940,27 @@ class _StoryGenerationPanelState extends State<StoryGenerationPanel> {
         throw '生成失败：重试次数已用完';
       }
       
+      // 6. 更新界面并保存
       if (!mounted) return;
-      setState(() => _generatedStory = response!.choices.first.message.content);
+      final generatedContent = response.choices.first.message.content;
+      setState(() => _generatedStory = generatedContent);
       await _saveContent(); // 保存生成的内容
+      
+      logService.info('故事生成成功', details: '长度: ${generatedContent.length} 字符');
+      
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('故事生成成功！'),
           backgroundColor: AnimeColors.miku,
+          duration: Duration(seconds: 2),
         ),
       );
     } catch (e) {
       if (!mounted) return;
       String errorMessage = '生成失败: $e';
+      
+      // 详细的错误处理
       if (e is ApiException) {
         if (e.statusCode == 503) {
           errorMessage = '服务器暂时不可用 (503)，请稍后重试或检查网络连接';
@@ -4874,10 +4968,13 @@ class _StoryGenerationPanelState extends State<StoryGenerationPanel> {
           errorMessage = 'API 密钥无效，请检查设置中的 API Key';
         } else if (e.statusCode == 429) {
           errorMessage = '请求过于频繁，请稍后再试';
+        } else if (e.statusCode == 400) {
+          errorMessage = '请求参数错误: ${e.message}';
         } else {
           errorMessage = '生成失败: ${e.message} (状态码: ${e.statusCode})';
         }
       }
+      
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(errorMessage),
@@ -4899,21 +4996,23 @@ class _StoryGenerationPanelState extends State<StoryGenerationPanel> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+            Row(
             children: [
               Expanded(child: _buildHeader('📖', '故事生成', 'AI 帮你完善剧本细节')),
-              // 提示词模板选择按钮
+              // 提示词模板选择按钮（参考剧本生成样式）
               TextButton.icon(
-                onPressed: _showTemplateSelector,
+                onPressed: _isLoadingTemplates ? null : _showStoryTemplateSelector,
                 icon: Icon(
                   Icons.text_snippet,
                   size: 16,
-                  color: _selectedTemplate != null ? AnimeColors.miku : Colors.white54,
+                  color: _selectedTemplateId != null ? AnimeColors.miku : Colors.white54,
                 ),
                 label: Text(
-                  _selectedTemplate != null ? _selectedTemplate! : '提示词模板',
+                  _isLoadingTemplates 
+                      ? '加载中...'
+                      : (_selectedTemplateId != null ? _getSelectedTemplateName() : '提示词模板'),
                   style: TextStyle(
-                    color: _selectedTemplate != null ? AnimeColors.miku : Colors.white54,
+                    color: _selectedTemplateId != null ? AnimeColors.miku : Colors.white54,
                     fontSize: 12,
                   ),
                 ),
@@ -4925,12 +5024,12 @@ class _StoryGenerationPanelState extends State<StoryGenerationPanel> {
               ),
               SizedBox(width: 8),
               // 保存按钮
-              if (_selectedTemplate != null)
+              if (_selectedTemplateId != null)
                 IconButton(
                   icon: Icon(Icons.save, size: 18, color: AnimeColors.miku),
                   tooltip: '保存模板选择',
                   onPressed: () {
-                    _saveSelectedTemplate();
+                    _saveSelectedTemplateId();
                   },
                   padding: EdgeInsets.zero,
                   constraints: BoxConstraints(),
@@ -5206,6 +5305,262 @@ class _StoryGenerationPanelState extends State<StoryGenerationPanel> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// ==================== LLM 提示词模板选择对话框 ====================
+class _LLMTemplatePickerDialog extends StatefulWidget {
+  final List<PromptTemplate> availableTemplates;
+  final String? selectedTemplateId;
+  final Function(String?) onSelect;
+  final VoidCallback onManageTemplates;
+
+  const _LLMTemplatePickerDialog({
+    required this.availableTemplates,
+    required this.selectedTemplateId,
+    required this.onSelect,
+    required this.onManageTemplates,
+  });
+
+  @override
+  State<_LLMTemplatePickerDialog> createState() => _LLMTemplatePickerDialogState();
+}
+
+class _LLMTemplatePickerDialogState extends State<_LLMTemplatePickerDialog> {
+  String? _tempSelectedId;
+
+  @override
+  void initState() {
+    super.initState();
+    _tempSelectedId = widget.selectedTemplateId;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: AnimeColors.cardBg,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: Container(
+        width: 500,
+        constraints: BoxConstraints(maxHeight: 600),
+        padding: EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 标题栏
+            Row(
+              children: [
+                Icon(Icons.auto_awesome, color: AnimeColors.miku, size: 24),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'LLM 提示词模板',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: Icon(Icons.close, color: Colors.white70),
+                ),
+              ],
+            ),
+            SizedBox(height: 20),
+            
+            // 模板列表
+            Flexible(
+              child: widget.availableTemplates.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.text_snippet_outlined, size: 48, color: Colors.white24),
+                          SizedBox(height: 16),
+                          Text(
+                            '暂无 LLM 提示词模板',
+                            style: TextStyle(color: Colors.white54, fontSize: 14),
+                          ),
+                          SizedBox(height: 12),
+                          TextButton.icon(
+                            onPressed: () {
+                              Navigator.pop(context);
+                              widget.onManageTemplates();
+                            },
+                            icon: Icon(Icons.settings, size: 16),
+                            label: Text('前往设置添加'),
+                            style: TextButton.styleFrom(
+                              foregroundColor: AnimeColors.miku,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView(
+                      shrinkWrap: true,
+                      children: [
+                        // "不使用模板"选项
+                        InkWell(
+                          onTap: () {
+                            setState(() {
+                              _tempSelectedId = null;
+                            });
+                          },
+                          borderRadius: BorderRadius.circular(12),
+                          child: Container(
+                            padding: EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: _tempSelectedId == null
+                                  ? AnimeColors.miku.withOpacity(0.15)
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: _tempSelectedId == null
+                                    ? AnimeColors.miku
+                                    : Colors.white.withOpacity(0.1),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  _tempSelectedId == null ? Icons.check_circle : Icons.circle_outlined,
+                                  color: _tempSelectedId == null ? AnimeColors.miku : Colors.white54,
+                                  size: 20,
+                                ),
+                                SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    '不使用模板',
+                                    style: TextStyle(
+                                      color: _tempSelectedId == null ? AnimeColors.miku : Colors.white70,
+                                      fontSize: 14,
+                                      fontWeight: _tempSelectedId == null ? FontWeight.w600 : FontWeight.normal,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        SizedBox(height: 12),
+                        
+                        // 模板列表
+                        ...widget.availableTemplates.map((template) {
+                          final isSelected = _tempSelectedId == template.id;
+                          return Padding(
+                            padding: EdgeInsets.only(bottom: 8),
+                            child: InkWell(
+                              onTap: () {
+                                setState(() {
+                                  _tempSelectedId = template.id;
+                                });
+                              },
+                              borderRadius: BorderRadius.circular(12),
+                              child: Container(
+                                padding: EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: isSelected
+                                      ? AnimeColors.miku.withOpacity(0.15)
+                                      : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: isSelected
+                                        ? AnimeColors.miku
+                                        : Colors.white.withOpacity(0.1),
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      isSelected ? Icons.check_circle : Icons.circle_outlined,
+                                      color: isSelected ? AnimeColors.miku : Colors.white54,
+                                      size: 20,
+                                    ),
+                                    SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            template.name,
+                                            style: TextStyle(
+                                              color: isSelected ? AnimeColors.miku : Colors.white70,
+                                              fontSize: 14,
+                                              fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                                            ),
+                                          ),
+                                          if (template.content.length > 50)
+                                            Padding(
+                                              padding: EdgeInsets.only(top: 4),
+                                              child: Text(
+                                                template.content.substring(0, 50) + '...',
+                                                style: TextStyle(
+                                                  color: Colors.white38,
+                                                  fontSize: 12,
+                                                ),
+                                                maxLines: 2,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ],
+                    ),
+            ),
+            
+            SizedBox(height: 20),
+            
+            // 底部按钮
+            Row(
+              children: [
+                TextButton.icon(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    widget.onManageTemplates();
+                  },
+                  icon: Icon(Icons.settings, size: 16),
+                  label: Text('管理模板'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.white70,
+                  ),
+                ),
+                Spacer(),
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text('取消'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.white70,
+                  ),
+                ),
+                SizedBox(width: 8),
+                ElevatedButton(
+                  onPressed: () {
+                    widget.onSelect(_tempSelectedId);
+                    Navigator.pop(context);
+                  },
+                  child: Text('确定'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AnimeColors.miku,
+                    foregroundColor: Colors.white,
+                    padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );
@@ -18435,6 +18790,7 @@ class _AddPromptDialogState extends State<_AddPromptDialog> {
 
 class _PromptSettingsPanelState extends State<PromptSettingsPanel> {
   Map<String, Map<String, String>> _prompts = {
+    'llm': {},       // LLM提示词（新增）
     'image': {},
     'video': {},
     'character': {},
@@ -18442,12 +18798,13 @@ class _PromptSettingsPanelState extends State<PromptSettingsPanel> {
     'prop': {},
   };
   
-  String _selectedCategory = 'image';
+  String _selectedCategory = 'llm';  // 默认选中LLM提示词
   String? _selectedPromptName; // 当前选中的提示词名称
   final TextEditingController _contentController = TextEditingController();
   final TextEditingController _nameController = TextEditingController();
   
   final List<Map<String, dynamic>> _categories = [
+    {'key': 'llm', 'name': 'LLM提示词', 'icon': Icons.auto_awesome, 'color': AnimeColors.miku},  // LLM提示词（新增，放在最前面）
     {'key': 'image', 'name': '图片提示词', 'icon': Icons.image_outlined, 'color': AnimeColors.sakura},
     {'key': 'video', 'name': '视频提示词', 'icon': Icons.movie_outlined, 'color': AnimeColors.blue},
     {'key': 'character', 'name': '角色提示词', 'icon': Icons.person_outline, 'color': AnimeColors.purple},
@@ -18476,6 +18833,7 @@ class _PromptSettingsPanelState extends State<PromptSettingsPanel> {
         final decoded = jsonDecode(promptsJson) as Map<String, dynamic>;
         setState(() {
           _prompts = {
+            'llm': Map<String, String>.from(decoded['llm'] ?? {}),        // LLM提示词（新增）
             'image': Map<String, String>.from(decoded['image'] ?? {}),
             'video': Map<String, String>.from(decoded['video'] ?? {}),
             'character': Map<String, String>.from(decoded['character'] ?? {}),

@@ -144,6 +144,38 @@ class PromptStore extends ChangeNotifier {
   Future<void> _initializeDefaultTemplates() async {
     final now = DateTime.now();
 
+    // LLM提示词默认模板（用于故事生成等通用场景）
+    _templates[PromptCategory.llm] = [
+      PromptTemplate(
+        id: 'llm_general_1',
+        category: PromptCategory.llm,
+        name: '通用',
+        content: '请根据以下创意生成一个完整的故事：\n\n{{input}}\n\n请包含：故事背景、主要情节、角色发展、高潮和结局。',
+        createdAt: now,
+      ),
+      PromptTemplate(
+        id: 'llm_suspense_1',
+        category: PromptCategory.llm,
+        name: '悬疑',
+        content: '请根据以下线索创作一个悬疑故事：\n\n{{input}}\n\n要求：设置悬念、埋下伏笔、制造反转、最后揭秘真相。',
+        createdAt: now,
+      ),
+      PromptTemplate(
+        id: 'llm_romance_1',
+        category: PromptCategory.llm,
+        name: '言情',
+        content: '请根据以下设定创作一个浪漫爱情故事：\n\n{{input}}\n\n要求：细腻的情感描写、甜蜜的互动、感人的情节发展。',
+        createdAt: now,
+      ),
+      PromptTemplate(
+        id: 'llm_scifi_1',
+        category: PromptCategory.llm,
+        name: '科幻',
+        content: '请根据以下科幻设定创作故事：\n\n{{input}}\n\n要求：合理的科技设定、宏大的世界观、深刻的主题思考。',
+        createdAt: now,
+      ),
+    ];
+
     // 剧本生成默认模板
     _templates[PromptCategory.script] = [
       PromptTemplate(
