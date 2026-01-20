@@ -5576,25 +5576,97 @@ class ScriptGenerationPanel extends StatefulWidget {
 }
 
 class _ScriptGenerationPanelState extends State<ScriptGenerationPanel> {
-  final TextEditingController _scriptInputController = TextEditingController();
+  // 左侧：故事原文输入
+  final TextEditingController _inputController = TextEditingController();
+  // 右侧：剧本结果输出（可编辑）
+  final TextEditingController _outputController = TextEditingController();
+  
   bool _isLoading = false;
-  String? _generatedScript;
-  String? _selectedTemplate; // 选中的提示词模板名称
-  Map<String, String> _promptTemplates = {}; // 视频提示词模板列表
+  bool _isLoadingTemplates = true; // 模板加载状态
+  String? _selectedTemplateId; // 选中的模板ID
+  List<PromptTemplate> _availableTemplates = []; // 从 PromptStore 加载的 LLM 模板列表
 
   @override
   void initState() {
     super.initState();
-    _loadPromptTemplates();
-    _loadSelectedTemplate();
+    _loadTemplatesFromPromptStore(); // 从 PromptStore 加载 LLM 模板
     _loadSavedContent(); // 加载保存的内容
+    
+    // 监听 PromptStore 变化，当用户在设置中修改提示词时自动更新
+    promptStore.addListener(_onPromptStoreChanged);
+    
+    // 监听输入和输出控制器的变化，实现自动保存
+    _inputController.addListener(_onInputChanged);
+    _outputController.addListener(_onOutputChanged);
+  }
+  
+  /// 当 PromptStore 发生变化时重新加载模板
+  void _onPromptStoreChanged() {
+    _loadTemplatesFromPromptStore();
+  }
+  
+  /// 输入内容变化时自动保存
+  void _onInputChanged() {
+    _saveContent();
+  }
+  
+  /// 输出内容变化时自动保存
+  void _onOutputChanged() {
+    _saveContent();
+    // 同步更新到全局状态，供其他面板使用
+    workspaceState.script = _outputController.text;
   }
 
   @override
   void dispose() {
     _saveTimer?.cancel(); // CRITICAL: 取消定时器，防止内存泄漏
-    _scriptInputController.dispose();
+    promptStore.removeListener(_onPromptStoreChanged); // 移除监听器
+    _inputController.removeListener(_onInputChanged);
+    _outputController.removeListener(_onOutputChanged);
+    _inputController.dispose();
+    _outputController.dispose();
     super.dispose();
+  }
+
+  /// 从 PromptStore 加载 LLM 类别的提示词模板
+  Future<void> _loadTemplatesFromPromptStore() async {
+    try {
+      setState(() {
+        _isLoadingTemplates = true;
+      });
+      
+      // 确保 PromptStore 已初始化
+      if (!promptStore.isInitialized) {
+        await promptStore.initialize();
+      }
+      
+      // 获取 LLM 类别的所有模板
+      final templates = promptStore.getTemplates(PromptCategory.llm);
+      
+      if (mounted) {
+        setState(() {
+          _availableTemplates = templates;
+          _isLoadingTemplates = false;
+        });
+        
+        logService.info('已加载 LLM 提示词模板（剧本生成）', details: '共 ${templates.length} 个模板');
+        
+        // 如果模板列表为空，给出提示
+        if (templates.isEmpty) {
+          logService.info('LLM 提示词模板列表为空（剧本生成）', details: '请在设置中添加 LLM 提示词模板');
+        }
+      }
+      
+      // 加载保存的模板选择（在模板加载完成后）
+      _loadSelectedTemplateId();
+    } catch (e) {
+      logService.error('加载提示词模板失败（剧本生成）', details: e.toString());
+      if (mounted) {
+        setState(() {
+          _isLoadingTemplates = false;
+        });
+      }
+    }
   }
 
   // 加载保存的内容
@@ -5603,17 +5675,24 @@ class _ScriptGenerationPanelState extends State<ScriptGenerationPanel> {
       final prefs = await SharedPreferences.getInstance();
       final savedInput = prefs.getString('script_input');
       final savedOutput = prefs.getString('script_output');
+      
       if (mounted) {
-        setState(() {
-          if (savedInput != null && savedInput.isNotEmpty) {
-            _scriptInputController.text = savedInput;
-          }
-          if (savedOutput != null && savedOutput.isNotEmpty) {
-            _generatedScript = savedOutput;
-            // 同步更新 workspaceState.script，让角色生成面板能够检测到
-            workspaceState.script = savedOutput;
-          }
-        });
+        // 临时移除监听器，避免触发保存
+        _inputController.removeListener(_onInputChanged);
+        _outputController.removeListener(_onOutputChanged);
+        
+        if (savedInput != null && savedInput.isNotEmpty) {
+          _inputController.text = savedInput;
+        }
+        if (savedOutput != null && savedOutput.isNotEmpty) {
+          _outputController.text = savedOutput;
+          // 同步更新 workspaceState.script，让角色生成面板能够检测到
+          workspaceState.script = savedOutput;
+        }
+        
+        // 重新添加监听器
+        _inputController.addListener(_onInputChanged);
+        _outputController.addListener(_onOutputChanged);
       }
     } catch (e) {
       logService.error('加载剧本内容失败', details: e.toString());
@@ -5629,103 +5708,126 @@ class _ScriptGenerationPanelState extends State<ScriptGenerationPanel> {
     _saveTimer = Timer(Duration(milliseconds: 500), () async {
       try {
         final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('script_input', _scriptInputController.text);
-        if (_generatedScript != null) {
-          await prefs.setString('script_output', _generatedScript!);
-        }
-        print('[ScriptGenerationPanel] ✓ 已保存输入内容');
+        await prefs.setString('script_input', _inputController.text);
+        await prefs.setString('script_output', _outputController.text);
+        logService.info('剧本内容已自动保存');
       } catch (e) {
         logService.error('保存剧本内容失败', details: e.toString());
       }
     });
   }
 
-  // 加载提示词模板
-  Future<void> _loadPromptTemplates() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final promptsJson = prefs.getString('prompts');
-      if (promptsJson != null) {
-        final decoded = jsonDecode(promptsJson) as Map<String, dynamic>;
-        setState(() {
-          _promptTemplates = Map<String, String>.from(decoded['video'] ?? {});
-        });
-      }
-    } catch (e) {
-      logService.error('加载提示词模板失败', details: e.toString());
-    }
-  }
-
   // 加载保存的模板选择
-  Future<void> _loadSelectedTemplate() async {
+  Future<void> _loadSelectedTemplateId() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final savedTemplate = prefs.getString('script_selected_template');
-      if (savedTemplate != null && savedTemplate.isNotEmpty) {
-        setState(() {
-          _selectedTemplate = savedTemplate;
-        });
+      final savedTemplateId = prefs.getString('script_selected_template_id');
+      if (savedTemplateId != null && savedTemplateId.isNotEmpty && mounted) {
+        // 验证模板ID是否存在于可用模板列表中
+        final templateExists = _availableTemplates.any((t) => t.id == savedTemplateId);
+        if (templateExists) {
+          setState(() {
+            _selectedTemplateId = savedTemplateId;
+          });
+        } else {
+          // 如果之前保存的模板不存在了，清除选择
+          await prefs.remove('script_selected_template_id');
+        }
       }
     } catch (e) {
-      logService.error('加载保存的模板选择失败', details: e.toString());
+      logService.error('加载保存的模板选择失败（剧本生成）', details: e.toString());
     }
   }
 
   // 保存模板选择
-  Future<void> _saveSelectedTemplate() async {
+  Future<void> _saveSelectedTemplateId() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      if (_selectedTemplate != null) {
-        await prefs.setString('script_selected_template', _selectedTemplate!);
+      if (_selectedTemplateId != null) {
+        await prefs.setString('script_selected_template_id', _selectedTemplateId!);
       } else {
-        await prefs.remove('script_selected_template');
+        await prefs.remove('script_selected_template_id');
       }
-      logService.info('保存模板选择', details: _selectedTemplate ?? '不使用模板');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('模板选择已保存'),
-            backgroundColor: AnimeColors.blue,
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
+      logService.info('保存模板选择（剧本生成）', details: _selectedTemplateId ?? '不使用模板');
     } catch (e) {
-      logService.error('保存模板选择失败', details: e.toString());
+      logService.error('保存模板选择失败（剧本生成）', details: e.toString());
     }
   }
-
+  
+  // 获取当前选中的模板
+  PromptTemplate? get _currentTemplate {
+    if (_selectedTemplateId == null || _availableTemplates.isEmpty) return null;
+    try {
+      return _availableTemplates.firstWhere(
+        (t) => t.id == _selectedTemplateId,
+        orElse: () => _availableTemplates.first,
+      );
+    } catch (e) {
+      return null;
+    }
+  }
+  
+  // 获取选中模板的名称
+  String _getSelectedTemplateName() {
+    if (_selectedTemplateId == null) return '提示词模板';
+    try {
+      final template = _availableTemplates.firstWhere(
+        (t) => t.id == _selectedTemplateId,
+      );
+      return template.name;
+    } catch (e) {
+      return '提示词模板';
+    }
+  }
+  
   // 显示模板选择对话框
-  void _showTemplateSelector() {
+  void _showScriptTemplateSelector() {
     showDialog(
       context: context,
-      builder: (context) => _PromptTemplateManagerDialog(
-        category: 'video',
-        selectedTemplate: _selectedTemplate,
-        accentColor: AnimeColors.blue,
-        onSelect: (template) {
+      builder: (context) => _LLMTemplatePickerDialog(
+        availableTemplates: _availableTemplates,
+        selectedTemplateId: _selectedTemplateId,
+        onSelect: (templateId) {
           setState(() {
-            _selectedTemplate = template;
+            _selectedTemplateId = templateId;
           });
-          if (template != null) {
-            _saveSelectedTemplate();
+          _saveSelectedTemplateId();
+          
+          if (mounted) {
+            String templateName = templateId == null ? '不使用模板' : _getSelectedTemplateName();
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('已选择模板：$templateName'),
+                backgroundColor: AnimeColors.blue,
+                duration: Duration(seconds: 2),
+              ),
+            );
           }
         },
-        onSave: () {
-          _loadPromptTemplates();
+        onManageTemplates: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const PromptConfigView()),
+          ).then((_) {
+            // 从设置返回后重新加载模板
+            _loadTemplatesFromPromptStore();
+          });
         },
       ),
     );
   }
 
   Future<void> _generateScript() async {
-    if (_scriptInputController.text.isEmpty) {
+    // 1. 验证输入
+    if (_inputController.text.trim().isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('请先输入故事原文')),
       );
       return;
     }
+    
+    // 2. 验证API配置
     if (!apiConfigManager.hasLlmConfig) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -5733,46 +5835,83 @@ class _ScriptGenerationPanelState extends State<ScriptGenerationPanel> {
       );
       return;
     }
+    
     if (!mounted) return;
     setState(() => _isLoading = true);
+    
     try {
       final apiService = apiConfigManager.createApiService();
+      final userInput = _inputController.text.trim();
       
-      // 构建系统提示词
-      String systemPrompt = '你是一个专业的剧本作家，擅长创作动漫剧本。请根据用户提供的故事内容，生成一个完整的剧本，包含对话、场景描述、人物动作等。';
+      // 3. 获取当前选中的模板
+      final template = _currentTemplate;
       
-      // 如果选择了模板，在系统提示词后加上模板内容
-      if (_selectedTemplate != null && _promptTemplates.containsKey(_selectedTemplate)) {
-        final templateContent = _promptTemplates[_selectedTemplate]!;
-        if (templateContent.isNotEmpty) {
-          systemPrompt = '$systemPrompt\n\n$templateContent';
+      // 4. 构建用户提示词
+      String userPrompt;
+      
+      if (template != null) {
+        // 使用模板的 content 字段
+        final templateContent = template.content;
+        
+        // 如果包含 {{input}} 占位符，则替换
+        if (templateContent.contains('{{input}}')) {
+          userPrompt = templateContent.replaceAll('{{input}}', userInput);
+        } else {
+          // 如果不包含占位符，则将用户输入拼接到模板后面
+          userPrompt = '$templateContent\n\n故事原文：\n$userInput';
         }
+        
+        logService.info('使用剧本模板', details: '模板: ${template.name} (ID: ${template.id})');
+      } else {
+        // 没有选择模板，使用默认提示词
+        userPrompt = '请根据以下故事内容生成一个完整的动漫剧本：\n\n$userInput\n\n请包含：场景描述、角色对话、动作提示、转场说明等。';
+        
+        logService.info('使用默认剧本生成', details: '未选择模板');
       }
       
+      // 5. 系统提示词（统一）
+      final systemPrompt = '你是一个专业的剧本作家，擅长创作动漫剧本。请根据用户提供的故事内容，生成一个完整的剧本，包含对话、场景描述、人物动作等。';
+      
+      logService.info('开始生成剧本', details: '模型: ${apiConfigManager.llmModel}');
+      
+      // 6. 调用 API
       final response = await apiService.chatCompletion(
         model: apiConfigManager.llmModel,
         messages: [
           {
             'role': 'system',
-            'content': systemPrompt
+            'content': systemPrompt,
           },
           {
             'role': 'user',
-            'content': '请根据以下内容生成一个完整的动漫剧本：\n\n${_scriptInputController.text}'
+            'content': userPrompt,
           },
         ],
         temperature: 0.7,
       );
+      
       if (!mounted) return;
+      
+      // 7. 将生成的内容填入右侧输出区域（可编辑）
       final generatedContent = response.choices.first.message.content;
-      setState(() => _generatedScript = generatedContent);
-      await _saveContent(); // 保存生成的内容
+      
+      // 临时移除监听器，避免触发保存
+      _outputController.removeListener(_onOutputChanged);
+      _outputController.text = generatedContent;
+      _outputController.addListener(_onOutputChanged);
+      
       // 保存到共享状态，供其他面板使用
       workspaceState.script = generatedContent;
-      logService.action('剧本生成成功');
+      
+      logService.info('剧本生成成功', details: '长度: ${generatedContent.length} 字符');
+      
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('剧本生成成功！其他面板现在可以基于此剧本生成内容'), backgroundColor: AnimeColors.miku),
+        SnackBar(
+          content: Text('剧本生成成功！您可以继续编辑，其他面板也可以基于此剧本生成内容'),
+          backgroundColor: AnimeColors.blue,
+          duration: Duration(seconds: 3),
+        ),
       );
     } catch (e) {
       logService.error('剧本生成失败', details: e.toString());
@@ -5796,18 +5935,20 @@ class _ScriptGenerationPanelState extends State<ScriptGenerationPanel> {
           Row(
             children: [
               Expanded(child: _buildHeader('📝', '剧本生成', '将故事转化为完整的剧本')),
-              // 提示词模板选择按钮
+              // 提示词模板选择按钮（从 PromptStore 加载 LLM 模板）
               TextButton.icon(
-                onPressed: _showTemplateSelector,
+                onPressed: _isLoadingTemplates ? null : _showScriptTemplateSelector,
                 icon: Icon(
                   Icons.text_snippet,
                   size: 16,
-                  color: _selectedTemplate != null ? AnimeColors.blue : Colors.white54,
+                  color: _selectedTemplateId != null ? AnimeColors.blue : Colors.white54,
                 ),
                 label: Text(
-                  _selectedTemplate != null ? _selectedTemplate! : '提示词模板',
+                  _isLoadingTemplates 
+                      ? '加载中...'
+                      : (_selectedTemplateId != null ? _getSelectedTemplateName() : '提示词模板'),
                   style: TextStyle(
-                    color: _selectedTemplate != null ? AnimeColors.blue : Colors.white54,
+                    color: _selectedTemplateId != null ? AnimeColors.blue : Colors.white54,
                     fontSize: 12,
                   ),
                 ),
@@ -5819,12 +5960,12 @@ class _ScriptGenerationPanelState extends State<ScriptGenerationPanel> {
               ),
               SizedBox(width: 8),
               // 保存按钮
-              if (_selectedTemplate != null)
+              if (_selectedTemplateId != null)
                 IconButton(
                   icon: Icon(Icons.save, size: 18, color: AnimeColors.blue),
                   tooltip: '保存模板选择',
                   onPressed: () {
-                    _saveSelectedTemplate();
+                    _saveSelectedTemplateId();
                   },
                   padding: EdgeInsets.zero,
                   constraints: BoxConstraints(),
@@ -5859,7 +6000,7 @@ class _ScriptGenerationPanelState extends State<ScriptGenerationPanel> {
                               SizedBox(height: 12),
                               Expanded(
                                 child: TextField(
-                                  controller: _scriptInputController,
+                                  controller: _inputController,
                                   enabled: true,
                                   readOnly: false,
                                   enableInteractiveSelection: true,
@@ -5868,10 +6009,7 @@ class _ScriptGenerationPanelState extends State<ScriptGenerationPanel> {
                                   textAlignVertical: TextAlignVertical.top,
                                   style: TextStyle(color: Colors.white70, fontSize: 15),
                                   decoration: _inputDecoration('输入故事内容或剧本需求：\n\n• 故事梗概\n• 主要角色\n• 关键情节\n• 场景设定...'),
-                                  onChanged: (value) {
-                                    // CRITICAL: 实时保存用户输入，防止数据丢失
-                                    _saveContent();
-                                  },
+                                  // 已使用 addListener 实现自动保存，无需 onChanged
                                 ),
                               ),
                             SizedBox(height: 20),
@@ -5908,57 +6046,41 @@ class _ScriptGenerationPanelState extends State<ScriptGenerationPanel> {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                _buildSectionLabel('生成结果'),
-                                if (_generatedScript != null)
-                                  IconButton(
-                                    icon: Icon(Icons.copy, size: 18, color: AnimeColors.miku),
-                                    tooltip: '一键复制全文',
-                                    onPressed: () async {
-                                      await Clipboard.setData(ClipboardData(text: _generatedScript!));
-                                      if (!mounted) return;
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(content: Text('已复制到剪贴板'), backgroundColor: AnimeColors.miku),
-                                      );
-                                      logService.action('复制剧本全文');
-                                    },
-                                    padding: EdgeInsets.zero,
-                                    constraints: BoxConstraints(),
-                                  ),
+                                _buildSectionLabel('生成结果（可编辑）'),
+                                IconButton(
+                                  icon: Icon(Icons.copy, size: 18, color: AnimeColors.miku),
+                                  tooltip: '一键复制全文',
+                                  onPressed: _outputController.text.isEmpty ? null : () async {
+                                    await Clipboard.setData(ClipboardData(text: _outputController.text));
+                                    if (!mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text('已复制到剪贴板'), backgroundColor: AnimeColors.miku),
+                                    );
+                                    logService.action('复制剧本全文');
+                                  },
+                                  padding: EdgeInsets.zero,
+                                  constraints: BoxConstraints(),
+                                ),
                               ],
                             ),
                             SizedBox(height: 12),
                             Expanded(
-                              child: _generatedScript == null
-                                  ? Center(
-                                      child: Column(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        children: [
-                                          Icon(
-                                            Icons.description_outlined,
-                                            size: 60,
-                                            color: Colors.white24,
-                                          ),
-                                          SizedBox(height: 16),
-                                          Text(
-                                            '生成的剧本将显示在这里',
-                                            style: TextStyle(
-                                              color: Colors.white38,
-                                              fontSize: 14,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    )
-                                  : SingleChildScrollView(
-                                      child: SelectableText(
-                                        _generatedScript!,
-                                        style: TextStyle(
-                                          color: Colors.white70,
-                                          fontSize: 14,
-                                          height: 1.6,
-                                        ),
-                                      ),
-                                    ),
+                              child: TextField(
+                                controller: _outputController,
+                                enabled: true,
+                                readOnly: false,
+                                enableInteractiveSelection: true,
+                                maxLines: null,
+                                minLines: 20,
+                                textAlignVertical: TextAlignVertical.top,
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 14,
+                                  height: 1.6,
+                                ),
+                                decoration: _inputDecoration('生成的剧本将显示在这里，您也可以直接在此编辑...'),
+                                // 已使用 addListener 实现自动保存，无需 onChanged
+                              ),
                             ),
                           ],
                         ),
