@@ -5,6 +5,7 @@ import 'dart:ui';
 import 'dart:convert';
 import 'dart:async';
 import 'dart:io';
+import 'package:window_manager/window_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -28,6 +29,32 @@ import 'storyboard_template_picker.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Windows 平台：配置窗口和标题栏
+  if (Platform.isWindows) {
+    await windowManager.ensureInitialized();
+    
+    WindowOptions windowOptions = const WindowOptions(
+      backgroundColor: Color(0xFF0a0a14), // 深色背景
+      titleBarStyle: TitleBarStyle.hidden, // 隐藏系统标题栏，使用自定义标题栏
+      skipTaskbar: false,
+    );
+    
+    await windowManager.waitUntilReadyToShow(windowOptions, () async {
+      await windowManager.show();
+      await windowManager.focus();
+    });
+  }
+  
+  // 设置系统UI样式（移动端）
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent, // 状态栏透明
+      statusBarIconBrightness: Brightness.light, // 状态栏图标为亮色
+      systemNavigationBarColor: Color(0xFF000000), // 底部导航栏黑色
+      systemNavigationBarIconBrightness: Brightness.light, // 底部导航栏图标亮色
+    ),
+  );
   
   // 加载环境变量
   await dotenv.load();
@@ -1558,6 +1585,136 @@ class AnimeColors {
   static Color get glassBg => themeManager.colors.glassBg;
 }
 
+// ==================== 自定义标题栏（Windows） ====================
+class CustomTitleBar extends StatelessWidget {
+  const CustomTitleBar({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    if (!Platform.isWindows) return const SizedBox.shrink();
+    
+    return Container(
+      height: 40,
+      decoration: BoxDecoration(
+        color: const Color(0xFF0a0a14), // 深黑色背景，与应用背景统一
+        border: Border(
+          bottom: BorderSide(
+            color: Colors.white.withOpacity(0.05),
+            width: 1,
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          // 左侧：应用图标和标题（可拖动区域）
+          Expanded(
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onPanStart: (details) {
+                windowManager.startDragging();
+              },
+              onDoubleTap: () async {
+                bool isMaximized = await windowManager.isMaximized();
+                if (isMaximized) {
+                  windowManager.unmaximize();
+                } else {
+                  windowManager.maximize();
+                }
+              },
+              child: Padding(
+                padding: const EdgeInsets.only(left: 16),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.star,
+                      color: AnimeColors.miku,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '星橙AI动漫制作',
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.9),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          // 右侧：窗口控制按钮
+          _WindowButton(
+            icon: Icons.minimize,
+            onPressed: () => windowManager.minimize(),
+          ),
+          _WindowButton(
+            icon: Icons.crop_square,
+            onPressed: () async {
+              bool isMaximized = await windowManager.isMaximized();
+              if (isMaximized) {
+                windowManager.unmaximize();
+              } else {
+                windowManager.maximize();
+              }
+            },
+          ),
+          _WindowButton(
+            icon: Icons.close,
+            onPressed: () => windowManager.close(),
+            isClose: true,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WindowButton extends StatefulWidget {
+  final IconData icon;
+  final VoidCallback onPressed;
+  final bool isClose;
+
+  const _WindowButton({
+    required this.icon,
+    required this.onPressed,
+    this.isClose = false,
+  });
+
+  @override
+  State<_WindowButton> createState() => _WindowButtonState();
+}
+
+class _WindowButtonState extends State<_WindowButton> {
+  bool _isHovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
+      child: GestureDetector(
+        onTap: widget.onPressed,
+        child: Container(
+          width: 46,
+          height: 40,
+          decoration: BoxDecoration(
+            color: _isHovered
+                ? (widget.isClose ? Colors.red : Colors.white.withOpacity(0.1))
+                : Colors.transparent,
+          ),
+          child: Icon(
+            widget.icon,
+            color: Colors.white.withOpacity(_isHovered ? 1.0 : 0.7),
+            size: 16,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // ==================== 图片显示辅助函数 ====================
 // 支持base64数据URI和HTTP URL的图片显示
 // 缓存已解码的 Base64 图片数据，避免重复解码
@@ -2700,10 +2857,19 @@ class _ProjectGalleryPageState extends State<ProjectGalleryPage> with SingleTick
               colors: [AnimeColors.darkBg, Color(0xFF0f0f1e), Color(0xFF1a1a2e)],
             ),
           ),
-          child: Center(
-            child: CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation(AnimeColors.miku),
-            ),
+          child: Column(
+            children: [
+              // Windows 自定义标题栏
+              const CustomTitleBar(),
+              // 加载指示器
+              Expanded(
+                child: Center(
+                  child: CircularProgressIndicator(
+                    valueColor: AlwaysStoppedAnimation(AnimeColors.miku),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       );
@@ -2717,26 +2883,36 @@ class _ProjectGalleryPageState extends State<ProjectGalleryPage> with SingleTick
             colors: [AnimeColors.darkBg, Color(0xFF0f0f1e), Color(0xFF1a1a2e)],
           ),
         ),
-        child: SafeArea(
-          child: Row(
-            children: [
-              // 左侧导航栏
-              _buildSidebar(context),
-              // 右侧主体内容
-              Expanded(
-                child: Column(
+        child: Column(
+          children: [
+            // Windows 自定义标题栏
+            const CustomTitleBar(),
+            // 主体内容
+            Expanded(
+              child: SafeArea(
+                top: false, // 顶部已经有标题栏了，不需要SafeArea
+                child: Row(
                   children: [
-                    // 顶部栏
-                    _buildTopBar(context),
-                    // 主体内容
+                    // 左侧导航栏
+                    _buildSidebar(context),
+                    // 右侧主体内容
                     Expanded(
-                      child: _buildMainContent(context),
+                      child: Column(
+                        children: [
+                          // 顶部栏
+                          _buildTopBar(context),
+                          // 主体内容
+                          Expanded(
+                            child: _buildMainContent(context),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -15000,16 +15176,23 @@ class _StoryboardDetailPageState extends State<StoryboardDetailPage> {
             colors: [AnimeColors.darkBg, Color(0xFF0f0f1e)],
           ),
         ),
-        child: SafeArea(
-          child: Column(
-            children: [
-              // 顶部栏
-              Container(
-                padding: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                child: Row(
+        child: Column(
+          children: [
+            // Windows 自定义标题栏
+            const CustomTitleBar(),
+            // 主体内容
+            Expanded(
+              child: SafeArea(
+                top: false,
+                child: Column(
                   children: [
-                    // 返回按钮
-                    InkWell(
+                    // 顶部栏
+                    Container(
+                      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                      child: Row(
+                        children: [
+                          // 返回按钮
+                          InkWell(
                       onTap: () => Navigator.pop(context),
                       borderRadius: BorderRadius.circular(12),
                       child: Container(
@@ -15076,18 +15259,21 @@ class _StoryboardDetailPageState extends State<StoryboardDetailPage> {
                   ],
                 ),
               ),
-              // 分镜列表
-              Expanded(
-                child: ListView.builder(
-                  padding: EdgeInsets.all(20),
-                  itemCount: _storyboards.length,
-                  itemBuilder: (context, index) {
-                    return _buildStoryboardCard(index);
-                  },
+                    // 分镜列表
+                    Expanded(
+                      child: ListView.builder(
+                        padding: EdgeInsets.all(20),
+                        itemCount: _storyboards.length,
+                        itemBuilder: (context, index) {
+                          return _buildStoryboardCard(index);
+                        },
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -16076,32 +16262,39 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> with SingleTickerProv
             colors: [AnimeColors.darkBg, Color(0xFF0f0f1e), Color(0xFF1a1a2e)],
           ),
         ),
-        child: SafeArea(
-          child: Column(
-            children: [
-              // 顶部栏
-              Padding(
-                padding: EdgeInsets.all(16),
-                child: Row(
+        child: Column(
+          children: [
+            // Windows 自定义标题栏
+            const CustomTitleBar(),
+            // 主体内容
+            Expanded(
+              child: SafeArea(
+                top: false,
+                child: Column(
                   children: [
-                    IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white),
-                      tooltip: '返回',
-                    ),
-                    SizedBox(width: 8),
-                    Text(
-                      '🔧 API 设置',
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
+                    // 顶部栏
+                    Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          IconButton(
+                            onPressed: () => Navigator.pop(context),
+                            icon: Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white),
+                            tooltip: '返回',
+                          ),
+                          SizedBox(width: 8),
+                          Text(
+                            '🔧 API 设置',
+                            style: TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                  ],
-                ),
-              ),
-              // Tab 导航
+                    // Tab 导航
               Container(
                 margin: EdgeInsets.symmetric(horizontal: 16),
                 decoration: BoxDecoration(
@@ -16142,13 +16335,16 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> with SingleTickerProv
                   ],
                 ),
               ),
-              // 保存按钮
-              Padding(
-                padding: EdgeInsets.all(16),
-                child: _buildSaveButton(),
+                    // 保存按钮
+                    Padding(
+                      padding: EdgeInsets.all(16),
+                      child: _buildSaveButton(),
+                    ),
+                  ],
+                ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -21397,11 +21593,18 @@ class _SettingsPageState extends State<SettingsPage> {
             colors: [AnimeColors.darkBg, Color(0xFF0f0f1e), Color(0xFF1a1a2e)],
           ),
         ),
-        child: SafeArea(
-          child: Row(
-            children: [
-              // 左侧菜单
-              Container(
+        child: Column(
+          children: [
+            // Windows 自定义标题栏
+            const CustomTitleBar(),
+            // 主体内容
+            Expanded(
+              child: SafeArea(
+                top: false,
+                child: Row(
+                  children: [
+                    // 左侧菜单
+                    Container(
                 width: 240,
                 padding: EdgeInsets.all(20),
                 child: Column(
@@ -21497,12 +21700,15 @@ class _SettingsPageState extends State<SettingsPage> {
                 width: 1,
                 color: Colors.white.withOpacity(0.1),
               ),
-              // 右侧内容区
-              Expanded(
-                child: _buildContent(),
+                    // 右侧内容区
+                    Expanded(
+                      child: _buildContent(),
+                    ),
+                  ],
+                ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

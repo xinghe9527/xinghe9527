@@ -59,6 +59,8 @@ dependencies:
   package_info_plus: ^8.0.2
   # Google Fonts - 优质字体库
   google_fonts: ^6.2.1
+  # Windows 窗口管理 - 自定义标题栏颜色
+  window_manager: ^0.3.7
 
 dev_dependencies:
   flutter_test:
