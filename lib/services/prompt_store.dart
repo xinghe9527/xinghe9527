@@ -271,6 +271,105 @@ class PromptStore extends ChangeNotifier {
       ),
     ];
 
+    // 场景生成默认模板
+    _templates[PromptCategory.scene] = [
+      PromptTemplate(
+        id: 'scene_default_1',
+        category: PromptCategory.scene,
+        name: '场景生成模板',
+        content: '''你是一个专业的场景设计师。请根据剧本内容，提取并生成所有场景的详细描述。
+
+要求：
+1. 识别剧本中的所有主要场景
+2. 为每个场景生成详细的描述，包括：
+   - 场景名称
+   - 环境特征（室内/室外、时间、天气等）
+   - 视觉元素（建筑、家具、道具等）
+   - 氛围和色调
+3. 生成适合图片生成的提示词，包含场景的详细视觉描述
+4. 确保场景描述清晰、具体，适合AI图片生成
+
+输出格式：JSON数组，每个元素包含 name（场景名称）和 prompt（场景提示词）字段''',
+        createdAt: now,
+      ),
+    ];
+
+    // 物品生成默认模板
+    _templates[PromptCategory.prop] = [
+      PromptTemplate(
+        id: 'prop_default_1',
+        category: PromptCategory.prop,
+        name: '物品生成模板',
+        content: '''你是一个专业的道具设计师。请根据剧本内容，提取并生成所有重要物品的详细描述。
+
+要求：
+1. 识别剧本中的所有关键物品和道具
+2. 为每个物品生成详细的描述，包括：
+   - 物品名称
+   - 外观特征（形状、颜色、材质等）
+   - 功能和用途
+   - 风格特点
+3. 生成适合图片生成的提示词，包含物品的详细视觉描述
+4. 确保物品描述清晰、具体，适合AI图片生成
+
+输出格式：JSON数组，每个元素包含 name（物品名称）和 prompt（物品提示词）字段''',
+        createdAt: now,
+      ),
+    ];
+
+    // 综合提示词默认模板（同时生成图片和视频提示词）
+    _templates[PromptCategory.comprehensive] = [
+      PromptTemplate(
+        id: 'comprehensive_default_1',
+        category: PromptCategory.comprehensive,
+        name: '综合分镜提示词',
+        content: '''你是一个专业的动漫分镜设计师和提示词专家。请根据以下分镜内容，同时生成图片提示词和视频提示词。
+
+分镜内容：
+{{input}}
+
+要求：
+1. 图片提示词：
+   - 详细描述画面构图、角色姿态、场景细节
+   - 包含画面风格、色调、光影效果
+   - 适合静态图片生成
+
+2. 视频提示词：
+   - 描述动作、运镜、节奏
+   - 包含转场、运动轨迹
+   - 适合动态视频生成
+
+输出格式（JSON）：
+{
+  "imagePrompt": "图片提示词内容",
+  "videoPrompt": "视频提示词内容"
+}''',
+        createdAt: now,
+      ),
+      PromptTemplate(
+        id: 'comprehensive_anime_1',
+        category: PromptCategory.comprehensive,
+        name: '动漫风格综合',
+        content: '''作为动漫分镜专家，根据分镜内容生成配套的图片和视频提示词。
+
+分镜内容：
+{{input}}
+
+图片提示词要求：
+- 二次元动漫风格，高清细腻
+- 精准描述角色表情、动作、服装
+- 场景氛围、色调、光效
+
+视频提示词要求：
+- 流畅自然的动作设计
+- 镜头运动和角度变化
+- 保持角色一致性
+
+以JSON格式输出：{"imagePrompt": "...", "videoPrompt": "..."}''',
+        createdAt: now,
+      ),
+    ];
+
     await _saveTemplates();
   }
 

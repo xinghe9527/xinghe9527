@@ -24,6 +24,7 @@ import 'models/prompt_template.dart';
 import 'views/prompt_config_view.dart';
 import 'views/auto_mode_screen.dart';
 import 'logic/auto_mode_provider.dart';
+import 'storyboard_template_picker.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -60,6 +61,15 @@ void main() async {
       }),
       workspaceState.loadCharacters().catchError((e) {
         print('❌ [CRITICAL ERROR CAUGHT] 加载角色失败: $e');
+      }),
+      workspaceState.loadScenes().catchError((e) {
+        print('❌ [CRITICAL ERROR CAUGHT] 加载场景失败: $e');
+      }),
+      workspaceState.loadProps().catchError((e) {
+        print('❌ [CRITICAL ERROR CAUGHT] 加载物品失败: $e');
+      }),
+      workspaceState.loadScript().catchError((e) {
+        print('❌ [CRITICAL ERROR CAUGHT] 加载剧本失败: $e');
       }),
     ], eagerError: false); // 即使某个失败也继续执行
     
@@ -1183,6 +1193,21 @@ class WorkspaceState extends ChangeNotifier {
     _script = value;
     notifyListeners();
   }
+  
+  // 加载保存的剧本
+  Future<void> loadScript() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedScript = prefs.getString('script_output');
+      if (savedScript != null && savedScript.isNotEmpty) {
+        _script = savedScript;
+        notifyListeners();
+        print('[WorkspaceState] 已加载剧本: ${savedScript.length} 字符');
+      }
+    } catch (e) {
+      print('[WorkspaceState] 加载剧本失败: $e');
+    }
+  }
 
   // 生成的角色
   List<Map<String, dynamic>> _characters = [];
@@ -1253,16 +1278,58 @@ class WorkspaceState extends ChangeNotifier {
   void addScene(Map<String, dynamic> scene) {
     _scenes.add(scene);
     notifyListeners();
+    _saveScenesAsync();
   }
   void updateScene(int index, Map<String, dynamic> scene) {
     if (index >= 0 && index < _scenes.length) {
       _scenes[index] = scene;
       notifyListeners();
+      _saveScenesAsync();
     }
   }
   void clearScenes() {
     _scenes.clear();
     notifyListeners();
+    _saveScenesAsync();
+  }
+  
+  void removeScene(int index) {
+    if (index >= 0 && index < _scenes.length) {
+      _scenes.removeAt(index);
+      notifyListeners();
+      _saveScenesAsync();
+    }
+  }
+  
+  // 加载保存的场景
+  Future<void> loadScenes() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final scenesJson = prefs.getString('workspace_scenes');
+      if (scenesJson != null && scenesJson.isNotEmpty) {
+        final List<dynamic> decoded = jsonDecode(scenesJson);
+        _scenes = decoded.map((e) => Map<String, dynamic>.from(e)).toList();
+        notifyListeners();
+        print('[WorkspaceState] 已加载 ${_scenes.length} 个场景');
+      }
+    } catch (e) {
+      print('[WorkspaceState] 加载场景失败: $e');
+    }
+  }
+  
+  // 异步保存场景（不阻塞UI）
+  void _saveScenesAsync() {
+    Future.microtask(() async {
+      try {
+        final scenesCopy = List<Map<String, dynamic>>.from(_scenes);
+        final scenesJson = jsonEncode(scenesCopy);
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('workspace_scenes', scenesJson);
+        print('[WorkspaceState] 已保存 ${scenesCopy.length} 个场景');
+      } catch (e) {
+        print('[WorkspaceState] 保存场景失败: $e');
+      }
+    });
   }
 
   // 生成的物品
@@ -1271,16 +1338,58 @@ class WorkspaceState extends ChangeNotifier {
   void addProp(Map<String, dynamic> prop) {
     _props.add(prop);
     notifyListeners();
+    _savePropsAsync();
   }
   void updateProp(int index, Map<String, dynamic> prop) {
     if (index >= 0 && index < _props.length) {
       _props[index] = prop;
       notifyListeners();
+      _savePropsAsync();
     }
   }
   void clearProps() {
     _props.clear();
     notifyListeners();
+    _savePropsAsync();
+  }
+  
+  void removeProp(int index) {
+    if (index >= 0 && index < _props.length) {
+      _props.removeAt(index);
+      notifyListeners();
+      _savePropsAsync();
+    }
+  }
+  
+  // 加载保存的物品
+  Future<void> loadProps() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final propsJson = prefs.getString('workspace_props');
+      if (propsJson != null && propsJson.isNotEmpty) {
+        final List<dynamic> decoded = jsonDecode(propsJson);
+        _props = decoded.map((e) => Map<String, dynamic>.from(e)).toList();
+        notifyListeners();
+        print('[WorkspaceState] 已加载 ${_props.length} 个物品');
+      }
+    } catch (e) {
+      print('[WorkspaceState] 加载物品失败: $e');
+    }
+  }
+  
+  // 异步保存物品（不阻塞UI）
+  void _savePropsAsync() {
+    Future.microtask(() async {
+      try {
+        final propsCopy = List<Map<String, dynamic>>.from(_props);
+        final propsJson = jsonEncode(propsCopy);
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('workspace_props', propsJson);
+        print('[WorkspaceState] 已保存 ${propsCopy.length} 个物品');
+      } catch (e) {
+        print('[WorkspaceState] 保存物品失败: $e');
+      }
+    });
   }
 
   // 生成的分镜
@@ -1301,6 +1410,18 @@ class WorkspaceState extends ChangeNotifier {
   int durationIndex = 1;
   int qualityIndex = 0;
 
+  // 初始化：加载所有保存的数据
+  Future<void> initialize() async {
+    print('[WorkspaceState] 开始初始化...');
+    await Future.wait([
+      loadScript(),
+      loadCharacters(),
+      loadScenes(),
+      loadProps(),
+    ]);
+    print('[WorkspaceState] 初始化完成');
+  }
+  
   // 清空所有状态
   void clearAll() {
     _script = '';
@@ -1455,6 +1576,12 @@ Widget buildImageWidget({
     child: Center(child: Icon(Icons.broken_image, color: Colors.white38, size: 40)),
   );
   
+  // 增加日志以便调试
+  if (imageUrl.isEmpty) {
+    logService.info('图片URL为空');
+    return defaultErrorWidget;
+  }
+  
   // 检查是否是base64数据URI
   if (imageUrl.startsWith('data:image/')) {
     // 使用 hashCode 作为缓存键
@@ -1467,7 +1594,10 @@ Widget buildImageWidget({
         fit: fit,
         width: width,
         height: height,
-        errorBuilder: errorBuilder ?? (_, __, ___) => defaultErrorWidget,
+        errorBuilder: errorBuilder ?? (context, error, stackTrace) {
+          logService.error('Base64图片显示失败（缓存）', details: error.toString());
+          return defaultErrorWidget;
+        },
         gaplessPlayback: true,
       );
     }
@@ -1482,14 +1612,22 @@ Widget buildImageWidget({
         // 缓存解码后的数据
         _base64ImageCache[cacheKey] = bytes;
         
+        logService.info('Base64图片解码成功', details: '大小: ${bytes.length} bytes');
+        
         return Image.memory(
           bytes,
           fit: fit,
           width: width,
           height: height,
-          errorBuilder: errorBuilder ?? (_, __, ___) => defaultErrorWidget,
+          errorBuilder: errorBuilder ?? (context, error, stackTrace) {
+            logService.error('Base64图片显示失败（新解码）', details: error.toString());
+            return defaultErrorWidget;
+          },
           gaplessPlayback: true,
         );
+      } else {
+        logService.error('Base64图片格式错误', details: '未找到base64,分隔符');
+        return defaultErrorWidget;
       }
     } catch (e) {
       logService.error('解析base64图片失败', details: e.toString());
@@ -1497,14 +1635,63 @@ Widget buildImageWidget({
     }
   }
   
-  // 如果不是base64格式，使用Image.network
+  // 检查是否是本地文件路径
+  if (imageUrl.startsWith('file://') || 
+      (imageUrl.length > 2 && imageUrl[1] == ':')) { // Windows路径 (C:\...)
+    try {
+      final filePath = imageUrl.startsWith('file://') 
+          ? imageUrl.substring(7) 
+          : imageUrl;
+      logService.info('使用本地文件图片', details: '路径: $filePath');
+      return Image.file(
+        File(filePath),
+        fit: fit,
+        width: width,
+        height: height,
+        errorBuilder: errorBuilder ?? (context, error, stackTrace) {
+          logService.error('本地文件图片加载失败', details: '路径: $filePath, 错误: $error');
+          return defaultErrorWidget;
+        },
+      );
+    } catch (e) {
+      logService.error('解析本地文件路径失败', details: e.toString());
+      return defaultErrorWidget;
+    }
+  }
+  
+  // 如果不是base64格式也不是本地文件，使用Image.network加载网络图片
+  logService.info('使用网络图片', details: 'URL前缀: ${imageUrl.substring(0, imageUrl.length > 100 ? 100 : imageUrl.length)}...');
+  
   return Image.network(
     imageUrl,
     fit: fit,
     width: width,
     height: height,
-    errorBuilder: errorBuilder ?? (_, __, ___) => defaultErrorWidget,
-    loadingBuilder: loadingBuilder,
+    loadingBuilder: loadingBuilder ?? (context, child, loadingProgress) {
+      if (loadingProgress == null) return child;
+      return Container(
+        width: width,
+        height: height,
+        color: AnimeColors.cardBg,
+        child: Center(
+          child: SizedBox(
+            width: 40,
+            height: 40,
+            child: CircularProgressIndicator(
+              value: loadingProgress.expectedTotalBytes != null
+                  ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
+                  : null,
+              strokeWidth: 2,
+              valueColor: AlwaysStoppedAnimation<Color>(AnimeColors.miku.withOpacity(0.6)),
+            ),
+          ),
+        ),
+      );
+    },
+    errorBuilder: errorBuilder ?? (context, error, stackTrace) {
+      logService.error('网络图片加载失败', details: 'URL: ${imageUrl.substring(0, imageUrl.length > 100 ? 100 : imageUrl.length)}..., 错误类型: ${error.runtimeType}, 错误: $error');
+      return defaultErrorWidget;
+    },
   );
 }
 
@@ -1708,6 +1895,9 @@ class _AnimeAppState extends State<AnimeApp> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    
+    // WorkspaceState 数据已在 main() 中加载完成，无需重复初始化
+    // workspaceState.initialize(); // 已移至 main()
     
     // 初始化 AutoModeProvider（单例，只初始化一次）
     _autoModeProvider.initialize();
@@ -4304,18 +4494,15 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         StoryGenerationPanel(),
         ScriptGenerationPanel(),
         StoryboardGenerationPanel(),
-        CharacterGenerationPanel(),
-        SceneGenerationPanel(),
-        PropGenerationPanel(),
+        // CharacterGenerationPanel, SceneGenerationPanel, PropGenerationPanel
+        // 已整合到 StoryboardGenerationPanel 中
       ];
 
   final List<(IconData, String)> _navItems = [
     (Icons.auto_stories_outlined, '故事生成'),
     (Icons.description_outlined, '剧本生成'),
     (Icons.view_agenda_outlined, '分镜生成'),
-    (Icons.person_outline, '角色生成'),
-    (Icons.landscape_outlined, '场景生成'),
-    (Icons.inventory_2_outlined, '物品生成'),
+    // 角色生成、场景生成、物品生成已整合到分镜生成面板中
   ];
 
   @override
@@ -4687,11 +4874,33 @@ class _StoryGenerationPanelState extends State<StoryGenerationPanel> {
   }
 
   @override
+  void deactivate() {
+    // 页面切换时立即保存（不等防抖）
+    _saveContentImmediately();
+    super.deactivate();
+  }
+
+  @override
   void dispose() {
-    _saveTimer?.cancel(); // CRITICAL: 取消定时器，防止内存泄漏
+    _saveTimer?.cancel(); // 取消定时器
+    _saveContentImmediately(); // 销毁前立即保存
     promptStore.removeListener(_onPromptStoreChanged); // 移除监听器
     _storyController.dispose();
     super.dispose();
+  }
+  
+  /// 立即保存内容（不使用防抖）
+  Future<void> _saveContentImmediately() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('story_input', _storyController.text);
+      if (_generatedStory != null) {
+        await prefs.setString('story_output', _generatedStory!);
+      }
+      logService.info('故事内容已立即保存');
+    } catch (e) {
+      logService.error('立即保存故事内容失败', details: e.toString());
+    }
   }
 
   // 加载保存的内容
@@ -4991,6 +5200,7 @@ class _StoryGenerationPanelState extends State<StoryGenerationPanel> {
 
   @override
   Widget build(BuildContext context) {
+    final hasScript = workspaceState.script.isNotEmpty && workspaceState.script.trim().isNotEmpty;
     return Padding(
       padding: EdgeInsets.all(28),
       child: Column(
@@ -5060,7 +5270,7 @@ class _StoryGenerationPanelState extends State<StoryGenerationPanel> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              _buildSectionLabel('一句话生成剧本'),
+                              _buildSectionLabel('一句话生成故事'),
                               SizedBox(height: 12),
                               Expanded(
                                 child: TextField(
@@ -5311,18 +5521,24 @@ class _StoryGenerationPanelState extends State<StoryGenerationPanel> {
   }
 }
 
-// ==================== LLM 提示词模板选择对话框 ====================
+// ==================== 通用提示词模板选择对话框 ====================
 class _LLMTemplatePickerDialog extends StatefulWidget {
   final List<PromptTemplate> availableTemplates;
   final String? selectedTemplateId;
   final Function(String?) onSelect;
   final VoidCallback onManageTemplates;
+  final String title; // 对话框标题
+  final IconData icon; // 对话框图标
+  final Color accentColor; // 主题颜色
 
   const _LLMTemplatePickerDialog({
     required this.availableTemplates,
     required this.selectedTemplateId,
     required this.onSelect,
     required this.onManageTemplates,
+    this.title = 'LLM 提示词模板',
+    this.icon = Icons.auto_awesome,
+    this.accentColor = const Color(0xFF00D4AA), // 默认 Miku Green
   });
 
   @override
@@ -5354,11 +5570,11 @@ class _LLMTemplatePickerDialogState extends State<_LLMTemplatePickerDialog> {
             // 标题栏
             Row(
               children: [
-                Icon(Icons.auto_awesome, color: AnimeColors.miku, size: 24),
+                Icon(widget.icon, color: widget.accentColor, size: 24),
                 SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    'LLM 提示词模板',
+                    widget.title,
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 18,
@@ -5384,7 +5600,7 @@ class _LLMTemplatePickerDialogState extends State<_LLMTemplatePickerDialog> {
                           Icon(Icons.text_snippet_outlined, size: 48, color: Colors.white24),
                           SizedBox(height: 16),
                           Text(
-                            '暂无 LLM 提示词模板',
+                            '暂无${widget.title}',
                             style: TextStyle(color: Colors.white54, fontSize: 14),
                           ),
                           SizedBox(height: 12),
@@ -5396,7 +5612,7 @@ class _LLMTemplatePickerDialogState extends State<_LLMTemplatePickerDialog> {
                             icon: Icon(Icons.settings, size: 16),
                             label: Text('前往设置添加'),
                             style: TextButton.styleFrom(
-                              foregroundColor: AnimeColors.miku,
+                              foregroundColor: widget.accentColor,
                             ),
                           ),
                         ],
@@ -5417,12 +5633,12 @@ class _LLMTemplatePickerDialogState extends State<_LLMTemplatePickerDialog> {
                             padding: EdgeInsets.all(16),
                             decoration: BoxDecoration(
                               color: _tempSelectedId == null
-                                  ? AnimeColors.miku.withOpacity(0.15)
+                                  ? widget.accentColor.withOpacity(0.15)
                                   : Colors.transparent,
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
                                 color: _tempSelectedId == null
-                                    ? AnimeColors.miku
+                                    ? widget.accentColor
                                     : Colors.white.withOpacity(0.1),
                               ),
                             ),
@@ -5430,7 +5646,7 @@ class _LLMTemplatePickerDialogState extends State<_LLMTemplatePickerDialog> {
                               children: [
                                 Icon(
                                   _tempSelectedId == null ? Icons.check_circle : Icons.circle_outlined,
-                                  color: _tempSelectedId == null ? AnimeColors.miku : Colors.white54,
+                                  color: _tempSelectedId == null ? widget.accentColor : Colors.white54,
                                   size: 20,
                                 ),
                                 SizedBox(width: 12),
@@ -5438,7 +5654,7 @@ class _LLMTemplatePickerDialogState extends State<_LLMTemplatePickerDialog> {
                                   child: Text(
                                     '不使用模板',
                                     style: TextStyle(
-                                      color: _tempSelectedId == null ? AnimeColors.miku : Colors.white70,
+                                      color: _tempSelectedId == null ? widget.accentColor : Colors.white70,
                                       fontSize: 14,
                                       fontWeight: _tempSelectedId == null ? FontWeight.w600 : FontWeight.normal,
                                     ),
@@ -5466,12 +5682,12 @@ class _LLMTemplatePickerDialogState extends State<_LLMTemplatePickerDialog> {
                                 padding: EdgeInsets.all(16),
                                 decoration: BoxDecoration(
                                   color: isSelected
-                                      ? AnimeColors.miku.withOpacity(0.15)
+                                      ? widget.accentColor.withOpacity(0.15)
                                       : Colors.transparent,
                                   borderRadius: BorderRadius.circular(12),
                                   border: Border.all(
                                     color: isSelected
-                                        ? AnimeColors.miku
+                                        ? widget.accentColor
                                         : Colors.white.withOpacity(0.1),
                                   ),
                                 ),
@@ -5479,7 +5695,7 @@ class _LLMTemplatePickerDialogState extends State<_LLMTemplatePickerDialog> {
                                   children: [
                                     Icon(
                                       isSelected ? Icons.check_circle : Icons.circle_outlined,
-                                      color: isSelected ? AnimeColors.miku : Colors.white54,
+                                      color: isSelected ? widget.accentColor : Colors.white54,
                                       size: 20,
                                     ),
                                     SizedBox(width: 12),
@@ -5490,7 +5706,7 @@ class _LLMTemplatePickerDialogState extends State<_LLMTemplatePickerDialog> {
                                           Text(
                                             template.name,
                                             style: TextStyle(
-                                              color: isSelected ? AnimeColors.miku : Colors.white70,
+                                              color: isSelected ? widget.accentColor : Colors.white70,
                                               fontSize: 14,
                                               fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
                                             ),
@@ -5553,7 +5769,7 @@ class _LLMTemplatePickerDialogState extends State<_LLMTemplatePickerDialog> {
                   },
                   child: Text('确定'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AnimeColors.miku,
+                    backgroundColor: widget.accentColor,
                     foregroundColor: Colors.white,
                     padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                   ),
@@ -5618,14 +5834,34 @@ class _ScriptGenerationPanelState extends State<ScriptGenerationPanel> {
   }
 
   @override
+  void deactivate() {
+    // 页面切换时立即保存（不等防抖）
+    _saveContentImmediately();
+    super.deactivate();
+  }
+
+  @override
   void dispose() {
-    _saveTimer?.cancel(); // CRITICAL: 取消定时器，防止内存泄漏
+    _saveTimer?.cancel(); // 取消定时器
+    _saveContentImmediately(); // 销毁前立即保存
     promptStore.removeListener(_onPromptStoreChanged); // 移除监听器
     _inputController.removeListener(_onInputChanged);
     _outputController.removeListener(_onOutputChanged);
     _inputController.dispose();
     _outputController.dispose();
     super.dispose();
+  }
+  
+  /// 立即保存内容（不使用防抖）
+  Future<void> _saveContentImmediately() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('script_input', _inputController.text);
+      await prefs.setString('script_output', _outputController.text);
+      logService.info('剧本内容已立即保存');
+    } catch (e) {
+      logService.error('立即保存剧本内容失败', details: e.toString());
+    }
   }
 
   /// 从 PromptStore 加载 LLM 类别的提示词模板
@@ -5927,6 +6163,7 @@ class _ScriptGenerationPanelState extends State<ScriptGenerationPanel> {
 
   @override
   Widget build(BuildContext context) {
+    final hasScript = workspaceState.script.isNotEmpty && workspaceState.script.trim().isNotEmpty;
     return Padding(
       padding: EdgeInsets.all(28),
       child: Column(
@@ -6228,6 +6465,30 @@ class _ScriptGenerationPanelState extends State<ScriptGenerationPanel> {
   }
 }
 
+Map<String, String> _decodeCharacterPromptTemplates(String promptsJson) {
+  final decoded = jsonDecode(promptsJson) as Map<String, dynamic>;
+  final character = Map<String, dynamic>.from(
+    decoded['character'] ?? <String, dynamic>{},
+  );
+  return Map<String, String>.from(character);
+}
+
+Map<String, String> _decodeScenePromptTemplates(String promptsJson) {
+  final decoded = jsonDecode(promptsJson) as Map<String, dynamic>;
+  final scenes = Map<String, dynamic>.from(
+    decoded['scene'] ?? <String, dynamic>{},
+  );
+  return Map<String, String>.from(scenes);
+}
+
+Map<String, String> _decodePropPromptTemplates(String promptsJson) {
+  final decoded = jsonDecode(promptsJson) as Map<String, dynamic>;
+  final props = Map<String, dynamic>.from(
+    decoded['prop'] ?? <String, dynamic>{},
+  );
+  return Map<String, String>.from(props);
+}
+
 // 角色生成面板
 class CharacterGenerationPanel extends StatefulWidget {
   const CharacterGenerationPanel({super.key});
@@ -6247,35 +6508,85 @@ class _CharacterGenerationPanelState extends State<CharacterGenerationPanel> {
   final Map<int, bool> _generatingImages = {};
   // 记录每个角色是否正在创建角色
   final Map<int, bool> _creatingCharacters = {};
-  // ImagePicker 用于右键上传图片
-  final ImagePicker _imagePicker = ImagePicker();
+  // ImagePicker 用于右键上传图片 - 延迟初始化
+  late final ImagePicker _imagePicker;
   // 参考风格相关
   String? _referenceStyleImagePath; // 参考风格图片路径
-  final TextEditingController _referenceStylePromptController = TextEditingController(text: '参考图片风格，');
+  late final TextEditingController _referenceStylePromptController;
   bool _showReferenceStylePanel = false; // 是否显示参考风格面板
+  
+  // === 简易设置相关 ===
+  // 图片分辨率设置（使用比例而不是具体像素）
+  String _selectedAspectRatio = '1:1'; // 默认比例
+  final Map<String, Map<String, int>> _aspectRatioToPixels = {
+    '1:1': {'width': 1024, 'height': 1024},
+    '9:16': {'width': 768, 'height': 1344},
+    '16:9': {'width': 1344, 'height': 768},
+    '3:4': {'width': 912, 'height': 1216},
+    '4:3': {'width': 1216, 'height': 912},
+  };
+  
+  // 风格提示词模板
+  String? _selectedStyleTemplateId; // 选中的风格模板ID
+  List<PromptTemplate> _styleTemplates = []; // 风格模板列表
+  late final TextEditingController _stylePromptController;
+  
+  // 专业提示词模板
+  String? _selectedProfessionalTemplateId; // 选中的专业模板ID
+  List<PromptTemplate> _professionalTemplates = []; // 专业模板列表
+  late final TextEditingController _professionalPromptController;
 
   @override
   void initState() {
     super.initState();
+    
+    // 初始化延迟字段
+    _imagePicker = ImagePicker();
+    _referenceStylePromptController = TextEditingController(text: '参考图片风格，');
+    _stylePromptController = TextEditingController();
+    _professionalPromptController = TextEditingController();
+    
     // 同步角色列表（包括从持久化存储加载的角色）
     _characters = List<Map<String, dynamic>>.from(workspaceState.characters);
-    _loadPromptTemplates();
-    _loadSelectedTemplate();
     _initializeControllers();
-    _loadReferenceStyle(); // 加载保存的参考风格设置
+    
     // 监听 workspaceState 的变化，以便实时更新按钮状态和角色列表
     workspaceState.addListener(_onWorkspaceStateChanged);
+    // 监听 PromptStore 变化
+    promptStore.addListener(_onPromptStoreChanged);
+    // 监听提示词的变化，实现自动保存
+    _stylePromptController.addListener(_saveEasySettings);
+    _professionalPromptController.addListener(_saveEasySettings);
+    
+    // 延迟执行非关键的异步加载，避免阻塞UI
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadPromptTemplates();
+      _loadSelectedTemplate();
+      _loadReferenceStyle(); // 加载保存的参考风格设置
+      _loadEasySettings(); // 加载简易设置
+      _loadEasySettingsTemplates(); // 加载简易设置的模板
+    });
+  }
+  
+  /// 当 PromptStore 发生变化时重新加载模板
+  void _onPromptStoreChanged() {
+    _loadEasySettingsTemplates();
   }
 
   @override
   void dispose() {
     workspaceState.removeListener(_onWorkspaceStateChanged);
+    promptStore.removeListener(_onPromptStoreChanged);
     // 清理所有Controller
     for (var controller in _imagePromptControllers.values) {
       controller.dispose();
     }
     _imagePromptControllers.clear();
     _referenceStylePromptController.dispose();
+    _stylePromptController.removeListener(_saveEasySettings);
+    _stylePromptController.dispose();
+    _professionalPromptController.removeListener(_saveEasySettings);
+    _professionalPromptController.dispose();
     super.dispose();
   }
 
@@ -6322,9 +6633,12 @@ class _CharacterGenerationPanelState extends State<CharacterGenerationPanel> {
       final prefs = await SharedPreferences.getInstance();
       final promptsJson = prefs.getString('prompts');
       if (promptsJson != null) {
-        final decoded = jsonDecode(promptsJson) as Map<String, dynamic>;
+        final decoded = await compute(_decodeCharacterPromptTemplates, promptsJson);
+        if (!mounted) {
+          return;
+        }
         setState(() {
-          _promptTemplates = Map<String, String>.from(decoded['character'] ?? {});
+          _promptTemplates = decoded;
         });
       }
     } catch (e) {
@@ -6353,20 +6667,22 @@ class _CharacterGenerationPanelState extends State<CharacterGenerationPanel> {
       final prefs = await SharedPreferences.getInstance();
       final savedImagePath = prefs.getString('character_reference_style_image');
       final savedPrompt = prefs.getString('character_reference_style_prompt');
-      if (mounted) {
-        setState(() {
-          if (savedImagePath != null && savedImagePath.isNotEmpty) {
-            // 检查文件是否存在
-            final file = File(savedImagePath);
-            if (file.existsSync()) {
-              _referenceStyleImagePath = savedImagePath;
-            }
-          }
-          if (savedPrompt != null && savedPrompt.isNotEmpty) {
-            _referenceStylePromptController.text = savedPrompt;
-          }
-        });
+      String? resolvedImagePath;
+      if (savedImagePath != null && savedImagePath.isNotEmpty) {
+        final file = File(savedImagePath);
+        if (await file.exists()) {
+          resolvedImagePath = savedImagePath;
+        }
       }
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _referenceStyleImagePath = resolvedImagePath;
+        if (savedPrompt != null && savedPrompt.isNotEmpty) {
+          _referenceStylePromptController.text = savedPrompt;
+        }
+      });
     } catch (e) {
       logService.error('加载参考风格设置失败', details: e.toString());
     }
@@ -6387,6 +6703,139 @@ class _CharacterGenerationPanelState extends State<CharacterGenerationPanel> {
     }
   }
 
+  // === 简易设置相关方法 ===
+  
+  // 加载简易设置模板
+  Future<void> _loadEasySettingsTemplates() async {
+    try {
+      setState(() {
+        // 加载风格提示词模板（使用 image 类别）
+        _styleTemplates = promptStore.getTemplates(PromptCategory.image);
+        // 加载专业提示词模板（使用 llm 类别）
+        _professionalTemplates = promptStore.getTemplates(PromptCategory.llm);
+      });
+      logService.info('加载简易设置模板', details: '风格模板: ${_styleTemplates.length}, 专业模板: ${_professionalTemplates.length}');
+    } catch (e) {
+      logService.error('加载简易设置模板失败', details: e.toString());
+    }
+  }
+  
+  // 加载简易设置
+  Future<void> _loadEasySettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (mounted) {
+        setState(() {
+          // 加载比例设置
+          _selectedAspectRatio = prefs.getString('character_easy_aspect_ratio') ?? '1:1';
+          
+          // 加载风格提示词模板ID和内容
+          _selectedStyleTemplateId = prefs.getString('character_easy_style_template_id');
+          final savedStylePrompt = prefs.getString('character_easy_style_prompt');
+          if (savedStylePrompt != null) {
+            _stylePromptController.text = savedStylePrompt;
+          }
+          
+          // 加载专业提示词模板ID和内容
+          _selectedProfessionalTemplateId = prefs.getString('character_easy_professional_template_id');
+          final savedProfessionalPrompt = prefs.getString('character_easy_professional_prompt');
+          if (savedProfessionalPrompt != null) {
+            _professionalPromptController.text = savedProfessionalPrompt;
+          }
+        });
+      }
+      logService.info('加载角色简易设置', details: '比例: $_selectedAspectRatio');
+    } catch (e) {
+      logService.error('加载简易设置失败', details: e.toString());
+    }
+  }
+  
+  // 保存简易设置（自动触发）
+  Future<void> _saveEasySettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('character_easy_aspect_ratio', _selectedAspectRatio);
+      await prefs.setString('character_easy_style_prompt', _stylePromptController.text);
+      await prefs.setString('character_easy_professional_prompt', _professionalPromptController.text);
+      
+      // 保存模板ID
+      if (_selectedStyleTemplateId != null) {
+        await prefs.setString('character_easy_style_template_id', _selectedStyleTemplateId!);
+      } else {
+        await prefs.remove('character_easy_style_template_id');
+      }
+      if (_selectedProfessionalTemplateId != null) {
+        await prefs.setString('character_easy_professional_template_id', _selectedProfessionalTemplateId!);
+      } else {
+        await prefs.remove('character_easy_professional_template_id');
+      }
+    } catch (e) {
+      logService.error('保存简易设置失败', details: e.toString());
+    }
+  }
+  
+  // 显示简易设置对话框
+  void _showEasySettingsDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => _EasySettingsDialog(
+        initialAspectRatio: _selectedAspectRatio,
+        aspectRatioOptions: _aspectRatioToPixels.keys.toList(),
+        styleTemplates: _styleTemplates,
+        initialStyleTemplateId: _selectedStyleTemplateId,
+        stylePromptController: _stylePromptController,
+        professionalTemplates: _professionalTemplates,
+        initialProfessionalTemplateId: _selectedProfessionalTemplateId,
+        professionalPromptController: _professionalPromptController,
+        referenceStyleImagePath: _referenceStyleImagePath,
+        referenceStylePromptController: _referenceStylePromptController,
+        onAspectRatioChanged: (newRatio) {
+          setState(() {
+            _selectedAspectRatio = newRatio;
+          });
+          _saveEasySettings();
+        },
+        onStyleTemplateChanged: (templateId) {
+          setState(() {
+            _selectedStyleTemplateId = templateId;
+            if (templateId != null) {
+              final template = _styleTemplates.firstWhere((t) => t.id == templateId);
+              _stylePromptController.text = template.content;
+            }
+          });
+          _saveEasySettings();
+        },
+        onProfessionalTemplateChanged: (templateId) {
+          // 将所有操作都放到微任务中异步执行，避免阻塞对话框关闭
+          Future.microtask(() {
+            setState(() {
+              _selectedProfessionalTemplateId = templateId;
+              if (templateId != null) {
+                final template = _professionalTemplates.firstWhere((t) => t.id == templateId);
+                _professionalPromptController.text = template.content;
+              }
+            });
+            // 保存设置
+            _saveEasySettings();
+          });
+        },
+        onPickReferenceImage: () async {
+          Navigator.pop(context); // 关闭设置对话框
+          await _pickReferenceStyleImage();
+          _showEasySettingsDialog(); // 重新打开设置对话框
+        },
+        onClearReferenceImage: () {
+          // 立即更新UI，不等待保存完成
+          setState(() {
+            _referenceStyleImagePath = null;
+          });
+          // 异步保存，不阻塞UI
+          Future.microtask(() => _saveReferenceStyle());
+        },
+      ),
+    );
+  }
+
   // 保存模板选择
   Future<void> _saveSelectedTemplate() async {
     try {
@@ -6398,16 +6847,84 @@ class _CharacterGenerationPanelState extends State<CharacterGenerationPanel> {
       }
       logService.info('保存模板选择', details: _selectedTemplate ?? '不使用模板');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('模板选择已保存'),
-            backgroundColor: AnimeColors.purple,
-            duration: Duration(seconds: 2),
-          ),
-        );
+        try {
+          final messenger = ScaffoldMessenger.maybeOf(context);
+          if (messenger != null) {
+            messenger.showSnackBar(
+              SnackBar(
+                content: Text('模板选择已保存'),
+                backgroundColor: AnimeColors.purple,
+                duration: Duration(seconds: 2),
+              ),
+            );
+          }
+        } catch (e) {
+          logService.error('显示提示消息失败', details: e.toString());
+        }
       }
     } catch (e) {
       logService.error('保存模板选择失败', details: e.toString());
+    }
+  }
+  
+  // 显示删除所有内容的确认对话框
+  void _showClearAllDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AnimeColors.cardBg,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 24),
+            SizedBox(width: 12),
+            Text('确认删除', style: TextStyle(color: Colors.white)),
+          ],
+        ),
+        content: Text(
+          '确定要删除所有角色吗？\n此操作不可恢复！',
+          style: TextStyle(color: Colors.white70, fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('取消', style: TextStyle(color: Colors.white70)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _clearAllCharacters();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red.withOpacity(0.8),
+            ),
+            child: Text('确认删除', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  // 删除所有角色
+  void _clearAllCharacters() {
+    setState(() {
+      _characters.clear();
+      workspaceState.clearCharacters();
+      _imagePromptControllers.values.forEach((controller) => controller.dispose());
+      _imagePromptControllers.clear();
+      _generatingImages.clear();
+    });
+    
+    logService.info('已清空所有角色');
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('已删除所有角色'),
+          backgroundColor: AnimeColors.purple,
+          duration: Duration(seconds: 2),
+        ),
+      );
     }
   }
 
@@ -6484,8 +7001,22 @@ class _CharacterGenerationPanelState extends State<CharacterGenerationPanel> {
       );
 
       final content = response.choices.first.message.content;
+      logService.info('角色生成API返回内容', details: content.substring(0, content.length > 500 ? 500 : content.length));
+      
       try {
-        final List<dynamic> parsed = jsonDecode(content);
+        // 清理可能的markdown代码块包裹
+        String cleanedContent = content.trim();
+        if (cleanedContent.startsWith('```json')) {
+          cleanedContent = cleanedContent.substring(7);
+        } else if (cleanedContent.startsWith('```')) {
+          cleanedContent = cleanedContent.substring(3);
+        }
+        if (cleanedContent.endsWith('```')) {
+          cleanedContent = cleanedContent.substring(0, cleanedContent.length - 3);
+        }
+        cleanedContent = cleanedContent.trim();
+        
+        final List<dynamic> parsed = jsonDecode(cleanedContent);
         workspaceState.clearCharacters();
         for (var char in parsed) {
           final charMap = Map<String, dynamic>.from(char);
@@ -6524,8 +7055,10 @@ class _CharacterGenerationPanelState extends State<CharacterGenerationPanel> {
           SnackBar(content: Text('成功生成${_characters.length}个角色!'), backgroundColor: AnimeColors.miku),
         );
       } catch (e) {
-        // 如果JSON解析失败，尝试简单处理
-        logService.warn('角色JSON解析失败，使用文本模式');
+        logService.warn('角色JSON解析失败', details: '错误: $e\n原始内容前200字符: ${content.substring(0, content.length > 200 ? 200 : content.length)}');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('角色解析失败，请检查提示词模板'), backgroundColor: AnimeColors.sakura),
+        );
       }
     } catch (e) {
       logService.error('角色生成失败', details: e.toString());
@@ -6539,15 +7072,9 @@ class _CharacterGenerationPanelState extends State<CharacterGenerationPanel> {
 
   @override
   Widget build(BuildContext context) {
-    // 使用 AnimatedBuilder 来监听 workspaceState 的变化，实时更新按钮状态
-    return AnimatedBuilder(
-      animation: workspaceState,
-      builder: (context, _) {
-        // 检查剧本生成结果是否有内容（去除空白字符后）
-        final hasScript = workspaceState.script.isNotEmpty && workspaceState.script.trim().isNotEmpty;
-        return _buildContent(hasScript);
-      },
-    );
+    // 检查剧本生成结果是否有内容（去除空白字符后）
+    final hasScript = workspaceState.script.isNotEmpty && workspaceState.script.trim().isNotEmpty;
+    return _buildContent(hasScript);
   }
 
   Widget _buildContent(bool hasScript) {
@@ -6561,6 +7088,47 @@ class _CharacterGenerationPanelState extends State<CharacterGenerationPanel> {
               Icon(Icons.person_outline, color: AnimeColors.sakura, size: 28),
               SizedBox(width: 12),
               Text('角色生成', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: Colors.white)),
+              SizedBox(width: 12),
+              // 简易设置按钮 - 可爱的齿轮图标
+              InkWell(
+                onTap: _showEasySettingsDialog,
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  padding: EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        AnimeColors.miku.withOpacity(0.2),
+                        AnimeColors.purple.withOpacity(0.2),
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: AnimeColors.miku.withOpacity(0.3),
+                      width: 1.5,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.tune_rounded,
+                        size: 18,
+                        color: AnimeColors.miku,
+                      ),
+                      SizedBox(width: 6),
+                      Text(
+                        '设置',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: AnimeColors.miku,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
               Spacer(),
               // 提示词模板选择按钮
               TextButton.icon(
@@ -6584,42 +7152,13 @@ class _CharacterGenerationPanelState extends State<CharacterGenerationPanel> {
                 ),
               ),
               SizedBox(width: 8),
-              // 保存按钮
-              if (_selectedTemplate != null)
-                IconButton(
-                  icon: Icon(Icons.save, size: 18, color: AnimeColors.purple),
-                  tooltip: '保存模板选择',
-                  onPressed: () {
-                    _saveSelectedTemplate();
-                  },
-                  padding: EdgeInsets.zero,
-                  constraints: BoxConstraints(),
-                ),
-              SizedBox(width: 8),
-              // 参考风格按钮
-              TextButton.icon(
-                onPressed: () {
-                  setState(() {
-                    _showReferenceStylePanel = !_showReferenceStylePanel;
-                  });
-                },
-                icon: Icon(
-                  Icons.palette_outlined,
-                  size: 16,
-                  color: _referenceStyleImagePath != null ? AnimeColors.miku : Colors.white54,
-                ),
-                label: Text(
-                  '参考风格',
-                  style: TextStyle(
-                    color: _referenceStyleImagePath != null ? AnimeColors.miku : Colors.white54,
-                    fontSize: 12,
-                  ),
-                ),
-                style: TextButton.styleFrom(
-                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  minimumSize: Size(0, 0),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
+              // 删除所有内容按钮
+              IconButton(
+                icon: Icon(Icons.delete_sweep, size: 20, color: Colors.red.withOpacity(0.8)),
+                tooltip: '删除所有角色',
+                onPressed: () => _showClearAllDialog(),
+                padding: EdgeInsets.zero,
+                constraints: BoxConstraints(),
               ),
               if (!hasScript)
                 Container(
@@ -6669,158 +7208,6 @@ class _CharacterGenerationPanelState extends State<CharacterGenerationPanel> {
               ),
             ],
           ),
-          // 参考风格面板
-          if (_showReferenceStylePanel) ...[
-            SizedBox(height: 16),
-            Container(
-              padding: EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.grey[850]?.withOpacity(0.6),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white.withOpacity(0.1)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.palette, color: AnimeColors.miku, size: 18),
-                      SizedBox(width: 8),
-                      Text(
-                        '参考风格',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      Spacer(),
-                      IconButton(
-                        icon: Icon(Icons.close, size: 18, color: Colors.white54),
-                        onPressed: () {
-                          setState(() {
-                            _showReferenceStylePanel = false;
-                          });
-                        },
-                        padding: EdgeInsets.zero,
-                        constraints: BoxConstraints(),
-                      ),
-                    ],
-                  ),
-                  SizedBox(height: 12),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // 图片上传区域
-                      GestureDetector(
-                        onTap: _pickReferenceStyleImage,
-                        child: Container(
-                          width: 120,
-                          height: 120,
-                          decoration: BoxDecoration(
-                            color: Colors.grey[800]?.withOpacity(0.3),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                              color: _referenceStyleImagePath != null
-                                  ? AnimeColors.miku.withOpacity(0.5)
-                                  : Colors.white.withOpacity(0.1),
-                              width: 2,
-                            ),
-                          ),
-                          child: _referenceStyleImagePath != null
-                              ? ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: Image.file(
-                                    File(_referenceStyleImagePath!),
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (context, error, stackTrace) {
-                                      return Center(
-                                        child: Icon(Icons.broken_image, color: Colors.white38, size: 32),
-                                      );
-                                    },
-                                  ),
-                                )
-                              : Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(Icons.add_photo_alternate, color: Colors.white38, size: 32),
-                                    SizedBox(height: 8),
-                                    Text(
-                                      '上传图片',
-                                      style: TextStyle(color: Colors.white38, fontSize: 11),
-                                    ),
-                                  ],
-                                ),
-                        ),
-                      ),
-                      SizedBox(width: 16),
-                      // 提示词输入框
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '参考风格提示词',
-                              style: TextStyle(
-                                color: Colors.white70,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            SizedBox(height: 6),
-                            Container(
-                              height: 80,
-                              decoration: BoxDecoration(
-                                color: Colors.grey[800]?.withOpacity(0.3),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: Colors.white.withOpacity(0.1)),
-                              ),
-                              child: TextField(
-                                controller: _referenceStylePromptController,
-                                enabled: true,
-                                readOnly: false,
-                                enableInteractiveSelection: true,
-                                maxLines: null,
-                                minLines: 1,
-                                textAlignVertical: TextAlignVertical.top,
-                                style: TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 13,
-                                  height: 1.5,
-                                ),
-                                decoration: InputDecoration(
-                                  hintText: '参考图片风格，',
-                                  hintStyle: TextStyle(color: Colors.white38, fontSize: 12),
-                                  border: InputBorder.none,
-                                  contentPadding: EdgeInsets.all(12),
-                                ),
-                                onChanged: (value) {
-                                  // 实时保存提示词
-                                  _saveReferenceStyle();
-                                },
-                              ),
-                            ),
-                            SizedBox(height: 8),
-                            if (_referenceStyleImagePath != null)
-                              Row(
-                                children: [
-                                  Icon(Icons.check_circle, color: AnimeColors.miku, size: 16),
-                                  SizedBox(width: 6),
-                                  Text(
-                                    '已设置参考风格，生成图片时将使用此风格',
-                                    style: TextStyle(color: AnimeColors.miku, fontSize: 11),
-                                  ),
-                                ],
-                              ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
           SizedBox(height: 20),
           Expanded(
             child: _characters.isEmpty
@@ -7066,8 +7453,11 @@ class _CharacterGenerationPanelState extends State<CharacterGenerationPanel> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // 图片预览区域（支持多张图片堆叠显示）
+                      // 图片预览区域（支持点击查看大图、右键菜单）
                       GestureDetector(
+                        onTap: imageUrl != null && imageUrl.isNotEmpty
+                            ? () => _showFullImage(context, imageUrl)
+                            : null,
                         onSecondaryTapDown: imageUrl != null && imageUrl.isNotEmpty
                             ? (details) {
                                 _showImageContextMenu(context, details.globalPosition, index);
@@ -7086,13 +7476,16 @@ class _CharacterGenerationPanelState extends State<CharacterGenerationPanel> {
                                 ? Stack(
                                     fit: StackFit.expand,
                                     children: [
-                                      // 主图片
-                                      buildImageWidget(
-                                        imageUrl: imageUrl,
+                                      // 主图片 - 直接使用Image.network
+                                      Image.network(
+                                        imageUrl,
+                                        key: ValueKey('char_img_$index\_${imageUrl.hashCode}'),
                                         width: double.infinity,
                                         height: double.infinity,
                                         fit: BoxFit.cover,
                                         errorBuilder: (context, error, stackTrace) {
+                                          // 记录详细错误信息
+                                          print('❌ 角色图片加载失败: 索引=$index, URL=$imageUrl, 错误=$error');
                                           return Container(
                                             width: double.infinity,
                                             height: double.infinity,
@@ -7106,12 +7499,21 @@ class _CharacterGenerationPanelState extends State<CharacterGenerationPanel> {
                                                   '加载失败',
                                                   style: TextStyle(color: Colors.white38, fontSize: 11),
                                                 ),
+                                                SizedBox(height: 4),
+                                                Text(
+                                                  '点击查看原图',
+                                                  style: TextStyle(color: Colors.white24, fontSize: 9),
+                                                ),
                                               ],
                                             ),
                                           );
                                         },
                                         loadingBuilder: (context, child, loadingProgress) {
-                                          if (loadingProgress == null) return child;
+                                          print('📥 角色图片加载中: 索引=$index, 进度=${loadingProgress?.cumulativeBytesLoaded}/${loadingProgress?.expectedTotalBytes}');
+                                          if (loadingProgress == null) {
+                                            print('✅ 角色图片加载完成: 索引=$index');
+                                            return child;
+                                          }
                                           return Container(
                                             width: double.infinity,
                                             height: double.infinity,
@@ -7123,6 +7525,7 @@ class _CharacterGenerationPanelState extends State<CharacterGenerationPanel> {
                                                         loadingProgress.expectedTotalBytes!
                                                     : null,
                                                 strokeWidth: 2,
+                                                color: AnimeColors.miku,
                                               ),
                                             ),
                                           );
@@ -7144,6 +7547,26 @@ class _CharacterGenerationPanelState extends State<CharacterGenerationPanel> {
                                               color: Colors.white,
                                               fontSize: 10,
                                               fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      // 删除按钮（右上角）
+                                      Positioned(
+                                        top: 4,
+                                        right: 4,
+                                        child: InkWell(
+                                          onTap: () => _deleteCharacterImage(index),
+                                          child: Container(
+                                            padding: EdgeInsets.all(4),
+                                            decoration: BoxDecoration(
+                                              color: Colors.black54,
+                                              shape: BoxShape.circle,
+                                            ),
+                                            child: Icon(
+                                              Icons.delete_outline,
+                                              color: Colors.white,
+                                              size: 16,
                                             ),
                                           ),
                                         ),
@@ -7170,7 +7593,7 @@ class _CharacterGenerationPanelState extends State<CharacterGenerationPanel> {
                         ),
                       ),
                       SizedBox(height: 12),
-                      // 显示 @串码（如果已创建角色）- 在图片下方
+                      // 显示 @串码（如果已上传角色）- 在图片下方
                       if (char['characterCode'] != null && char['characterCode'].toString().isNotEmpty) ...[
                         GestureDetector(
                           onTap: () {
@@ -7213,8 +7636,9 @@ class _CharacterGenerationPanelState extends State<CharacterGenerationPanel> {
                         ),
                         SizedBox(height: 8),
                       ],
-                      // 创建角色按钮（仅在图片存在时显示）
+                      // 根据图片状态显示不同按钮
                       if (imageUrl != null && imageUrl.isNotEmpty) ...[
+                        // 生成图片后：显示"上传角色"按钮
                         SizedBox(
                           width: double.infinity,
                           height: 32,
@@ -7224,7 +7648,7 @@ class _CharacterGenerationPanelState extends State<CharacterGenerationPanel> {
                                 : () {
                                     // 防止快速重复点击
                                     if (isCreating) return;
-                                    _createCharacter(index);
+                                    _uploadCharacterToAPI(index);
                                   },
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.transparent,
@@ -7252,7 +7676,7 @@ class _CharacterGenerationPanelState extends State<CharacterGenerationPanel> {
                                           ),
                                           SizedBox(width: 6),
                                           Text(
-                                            '创建中...',
+                                            '上传中...',
                                             style: TextStyle(
                                               color: Colors.white,
                                               fontSize: 11,
@@ -7264,10 +7688,10 @@ class _CharacterGenerationPanelState extends State<CharacterGenerationPanel> {
                                     : Row(
                                         mainAxisAlignment: MainAxisAlignment.center,
                                         children: [
-                                          Icon(Icons.person_add, size: 14, color: Colors.white),
+                                          Icon(Icons.cloud_upload, size: 14, color: Colors.white),
                                           SizedBox(width: 6),
                                           Text(
-                                            '创建角色',
+                                            '上传角色',
                                             style: TextStyle(
                                               color: Colors.white,
                                               fontSize: 11,
@@ -7280,6 +7704,44 @@ class _CharacterGenerationPanelState extends State<CharacterGenerationPanel> {
                             ),
                           ),
                         ),
+                      ] else ...[
+                        // 未生成图片时：显示"选择角色"按钮
+                        SizedBox(
+                          width: double.infinity,
+                          height: 32,
+                          child: ElevatedButton(
+                            onPressed: () => _selectCharacterFromLibrary(index),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.transparent,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              padding: EdgeInsets.zero,
+                            ),
+                            child: Ink(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(colors: [AnimeColors.purple, AnimeColors.sakura]),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Container(
+                                alignment: Alignment.center,
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.people_outline, size: 14, color: Colors.white),
+                                    SizedBox(width: 6),
+                                    Text(
+                                      '选择角色',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
                       ],
                     ],
                   ),
@@ -7288,6 +7750,132 @@ class _CharacterGenerationPanelState extends State<CharacterGenerationPanel> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  // 显示全屏图片
+  void _showFullImage(BuildContext context, String imageUrl) {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: GestureDetector(
+          onTap: () => Navigator.of(context).pop(),
+          child: Container(
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.of(context).size.width * 0.9,
+              maxHeight: MediaQuery.of(context).size.height * 0.9,
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: buildImageWidget(
+                imageUrl: imageUrl,
+                fit: BoxFit.contain,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // 删除角色图片
+  void _deleteCharacterImage(int index) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AnimeColors.cardBg,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 24),
+            SizedBox(width: 12),
+            Text('确认删除', style: TextStyle(color: Colors.white)),
+          ],
+        ),
+        content: Text(
+          '确定要删除这张角色图片吗？',
+          style: TextStyle(color: Colors.white70, fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('取消', style: TextStyle(color: Colors.white70)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              setState(() {
+                _characters[index]['imageUrl'] = null;
+                workspaceState.updateCharacter(index, _characters[index]);
+              });
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('已删除角色图片'),
+                  backgroundColor: AnimeColors.miku,
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red.withOpacity(0.8),
+            ),
+            child: Text('确认删除', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // 从素材库选择角色
+  void _selectCharacterFromLibrary(int index) {
+    logService.action('打开素材库选择角色', details: '索引: $index');
+    
+    showDialog(
+      context: context,
+      builder: (context) => _CharacterMaterialPickerDialog(
+        onCharacterSelected: (material) {
+          // 应用选择的角色到当前卡片
+          if (index < _characters.length) {
+            setState(() {
+              final char = _characters[index];
+              
+              // 设置图片路径和URL
+              final imagePath = material['path'];
+              final imageUrl = material['uploadedUrl'];
+              
+              if (imagePath != null && imagePath.isNotEmpty) {
+                char['localImagePath'] = imagePath;
+                char['imageUrl'] = imageUrl ?? imagePath;
+              } else if (imageUrl != null && imageUrl.isNotEmpty) {
+                char['imageUrl'] = imageUrl;
+              }
+              
+              // 如果素材有characterCode，也设置到角色
+              final characterCode = material['characterCode'];
+              if (characterCode != null && characterCode.isNotEmpty) {
+                char['characterCode'] = characterCode;
+              }
+              
+              // 更新到workspaceState
+              workspaceState.updateCharacter(index, char);
+            });
+            
+            logService.info(
+              '从素材库应用角色',
+              details: '名称: ${material['name']}, CharacterCode: ${material['characterCode'] ?? "无"}',
+            );
+            
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('已从素材库选择角色: ${material['name'] ?? "未命名"}'),
+                backgroundColor: AnimeColors.miku,
+                duration: Duration(seconds: 2),
+              ),
+            );
+          }
+        },
       ),
     );
   }
@@ -7414,6 +8002,29 @@ class _CharacterGenerationPanelState extends State<CharacterGenerationPanel> {
     }
   }
 
+  // 清空参考风格图片
+  Future<void> _clearReferenceStyleImage() async {
+    try {
+      setState(() {
+        _referenceStyleImagePath = null;
+      });
+      await _saveReferenceStyle(); // 保存设置
+      logService.action('清空参考风格图片');
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('已清空参考风格图片'),
+            backgroundColor: AnimeColors.miku,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      logService.error('清空参考风格图片失败', details: e.toString());
+    }
+  }
+
   Future<void> _generateCharacterImage(int index) async {
     if (index >= _characters.length) return;
     
@@ -7443,15 +8054,26 @@ class _CharacterGenerationPanelState extends State<CharacterGenerationPanel> {
     try {
       final apiService = apiConfigManager.createApiService();
       
-      // 合并提示词：参考风格提示词 + 角色卡片提示词
-      String finalPrompt = imagePrompt;
-      if (_referenceStyleImagePath != null && _referenceStyleImagePath!.isNotEmpty) {
-        final referencePrompt = _referenceStylePromptController.text.trim();
-        if (referencePrompt.isNotEmpty) {
-          // 合并提示词：参考风格提示词在前，角色提示词在后
-          finalPrompt = '$referencePrompt $imagePrompt';
-        }
+      // === 使用简易设置中的配置组合提示词 ===
+      // 1. 专业提示词（来自简易设置）
+      final professionalPrompt = _professionalPromptController.text.trim();
+      // 2. 参考风格提示词（来自简易设置）
+      final referencePrompt = _referenceStylePromptController.text.trim();
+      // 3. 角色描述提示词（来自卡片输入框）
+      
+      // 组合顺序：专业提示词 + 参考风格提示词 + 角色描述
+      List<String> promptParts = [];
+      if (professionalPrompt.isNotEmpty) {
+        promptParts.add(professionalPrompt);
       }
+      if (_referenceStyleImagePath != null && _referenceStyleImagePath!.isNotEmpty && referencePrompt.isNotEmpty) {
+        promptParts.add(referencePrompt);
+      }
+      promptParts.add(imagePrompt);
+      
+      final finalPrompt = promptParts.join(', ');
+      
+      logService.info('角色图片生成', details: '最终提示词: $finalPrompt');
       
       // 准备参考图片列表（如果有）
       List<String>? referenceImages;
@@ -7459,22 +8081,50 @@ class _CharacterGenerationPanelState extends State<CharacterGenerationPanel> {
         referenceImages = [_referenceStyleImagePath!];
       }
       
-      // 异步调用图片生成API，不阻塞UI
+      // 根据比例获取实际像素尺寸
+      final pixels = _aspectRatioToPixels[_selectedAspectRatio] ?? {'width': 1024, 'height': 1024};
+      final width = pixels['width']!;
+      final height = pixels['height']!;
+      
+      logService.info('使用比例生成图片', details: '比例: $_selectedAspectRatio, 尺寸: ${width}x${height}');
+      
+      // 异步调用图片生成API，不阻塞UI，使用简易设置中的分辨率
       final response = await apiService.generateImage(
         prompt: finalPrompt,
         model: apiConfigManager.imageModel,
-        width: 1024,
-        height: 1024,
+        width: width,
+        height: height,
         quality: 'standard',
         referenceImages: referenceImages, // 传入参考图片
       );
 
       if (mounted) {
+        // 记录图片URL信息
+        final urlLength = response.imageUrl.length;
+        final urlPrefix = response.imageUrl.substring(0, response.imageUrl.length > 50 ? 50 : response.imageUrl.length);
+        logService.info(
+          '角色图片生成成功',
+          details: '索引: $index, URL长度: $urlLength, 前缀: $urlPrefix...',
+        );
+        
+        // 先更新UI显示图片
         setState(() {
           char['imageUrl'] = response.imageUrl;
           _generatingImages[index] = false;
-          // 更新workspaceState
           workspaceState.updateCharacter(index, char);
+        });
+        
+        // 异步下载并保存图片到本地（不阻塞UI）
+        _downloadAndSaveCharacterImage(response.imageUrl, index).then((localPath) {
+          if (localPath != null && mounted) {
+            setState(() {
+              char['localImagePath'] = localPath;
+              workspaceState.updateCharacter(index, char);
+            });
+            logService.info('角色图片已保存到本地', details: localPath);
+          }
+        }).catchError((e) {
+          logService.error('保存角色图片到本地失败', details: e.toString());
         });
         
         ScaffoldMessenger.of(context).showSnackBar(
@@ -7491,6 +8141,94 @@ class _CharacterGenerationPanelState extends State<CharacterGenerationPanel> {
           SnackBar(content: Text('图片生成失败: $e'), backgroundColor: AnimeColors.sakura),
         );
       }
+    }
+  }
+
+  // 下载并保存角色图片到本地
+  Future<String?> _downloadAndSaveCharacterImage(String imageUrl, int index) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final autoSave = prefs.getBool('auto_save_images') ?? false;
+      final savePath = prefs.getString('image_save_path') ?? '';
+      
+      // 获取角色名称
+      final char = _characters[index];
+      final characterName = (char['name'] as String?)?.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_') ?? 'character';
+      
+      // 确定保存目录
+      Directory dir;
+      if (autoSave && savePath.isNotEmpty) {
+        // 使用用户设置的保存路径
+        dir = Directory(savePath);
+        if (!await dir.exists()) {
+          await dir.create(recursive: true);
+        }
+      } else {
+        // 使用临时目录
+        final tempDir = await getTemporaryDirectory();
+        dir = Directory('${tempDir.path}/xinghe_characters');
+        if (!await dir.exists()) {
+          await dir.create(recursive: true);
+        }
+      }
+      
+      // 下载图片
+      Uint8List imageBytes;
+      String fileExtension = 'png';
+      
+      if (imageUrl.startsWith('data:image/')) {
+        // Base64 数据URI
+        final base64Index = imageUrl.indexOf('base64,');
+        if (base64Index == -1) {
+          throw Exception('无效的Base64数据URI');
+        }
+        final base64Data = imageUrl.substring(base64Index + 7);
+        imageBytes = base64Decode(base64Data);
+        
+        // 提取文件扩展名
+        final mimeMatch = RegExp(r'data:image/([^;]+)').firstMatch(imageUrl);
+        if (mimeMatch != null) {
+          final mimeType = mimeMatch.group(1) ?? 'png';
+          if (mimeType.contains('jpeg') || mimeType.contains('jpg')) {
+            fileExtension = 'jpg';
+          } else if (mimeType.contains('webp')) {
+            fileExtension = 'webp';
+          }
+        }
+      } else if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+        // HTTP URL - 下载图片
+        final response = await http.get(Uri.parse(imageUrl));
+        if (response.statusCode != 200) {
+          throw Exception('下载图片失败: HTTP ${response.statusCode}');
+        }
+        imageBytes = response.bodyBytes;
+        
+        // 从URL或Content-Type推断文件扩展名
+        final contentType = response.headers['content-type'];
+        if (contentType != null) {
+          if (contentType.contains('jpeg') || contentType.contains('jpg')) {
+            fileExtension = 'jpg';
+          } else if (contentType.contains('webp')) {
+            fileExtension = 'webp';
+          }
+        }
+      } else {
+        throw Exception('不支持的图片URL格式');
+      }
+      
+      // 生成文件名并保存
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final fileName = 'character_${characterName}_$timestamp.$fileExtension';
+      final filePath = '${dir.path}${Platform.pathSeparator}$fileName';
+      final file = File(filePath);
+      await file.writeAsBytes(imageBytes);
+      
+      print('✅ 角色图片已保存: $filePath');
+      return filePath;
+    } catch (e, stackTrace) {
+      print('❌ 保存角色图片失败: $e');
+      print('📍 堆栈跟踪: $stackTrace');
+      return null;
     }
   }
 
@@ -7564,7 +8302,8 @@ class _CharacterGenerationPanelState extends State<CharacterGenerationPanel> {
   }
 
   // 创建角色（上传到 Sora API）
-  Future<void> _createCharacter(int index) async {
+  // 上传角色到API（应用绘图空间的图片上传规则）
+  Future<void> _uploadCharacterToAPI(int index) async {
     if (index >= _characters.length) return;
     
     // 防止重复调用 - 在方法开始就检查
@@ -7598,7 +8337,7 @@ class _CharacterGenerationPanelState extends State<CharacterGenerationPanel> {
       return;
     }
 
-    // 检查是否已经创建过角色
+    // 检查是否已经上传过角色
     if (char['characterCode'] != null && char['characterCode'].toString().isNotEmpty) {
       if (mounted) {
         setState(() {
@@ -7606,7 +8345,7 @@ class _CharacterGenerationPanelState extends State<CharacterGenerationPanel> {
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('该角色已创建，角色代码: @${char['characterCode']}'),
+            content: Text('该角色已上传，角色代码: @${char['characterCode']}'),
             backgroundColor: AnimeColors.miku,
           ),
         );
@@ -7630,19 +8369,42 @@ class _CharacterGenerationPanelState extends State<CharacterGenerationPanel> {
     }
 
     try {
-      logService.action('开始创建角色', details: '角色: ${char['name']}');
+      logService.action('开始上传角色到API', details: '角色: ${char['name']}');
       
       final apiService = apiConfigManager.createApiService();
       
-      // 将图片 URL 转换为 File 对象
-      File imageFile;
-      if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
-        // 如果是网络 URL，需要先下载
-        throw Exception('暂不支持网络图片，请使用本地生成的图片');
+      // 优先使用本地保存的图片路径
+      String imagePath;
+      final localImagePath = char['localImagePath'] as String?;
+      
+      if (localImagePath != null && localImagePath.isNotEmpty) {
+        // 如果有本地路径，直接使用
+        imagePath = localImagePath;
+        print('✅ 使用本地保存的图片: $imagePath');
+      } else if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+        // 如果是网络 URL，先下载到本地
+        print('📥 下载网络图片: $imageUrl');
+        try {
+          final response = await http.get(Uri.parse(imageUrl));
+          if (response.statusCode != 200) {
+            throw Exception('下载图片失败: HTTP ${response.statusCode}');
+          }
+          
+          final imageBytes = response.bodyBytes;
+          final tempDir = await getTemporaryDirectory();
+          final timestamp = DateTime.now().millisecondsSinceEpoch;
+          final tempImagePath = '${tempDir.path}/character_upload_${timestamp}.png';
+          final file = File(tempImagePath);
+          await file.writeAsBytes(imageBytes);
+          imagePath = tempImagePath;
+          print('✅ 网络图片已下载: $imagePath');
+        } catch (e) {
+          throw Exception('下载网络图片失败: $e');
+        }
       } else if (imageUrl.startsWith('data:image/')) {
         // 如果是 base64 图片，需要先解码并保存为临时文件
+        print('🔄 处理Base64图片...');
         try {
-          // 提取 base64 数据
           final base64Index = imageUrl.indexOf('base64,');
           if (base64Index == -1) {
             throw Exception('无效的 base64 图片格式');
@@ -7651,33 +8413,36 @@ class _CharacterGenerationPanelState extends State<CharacterGenerationPanel> {
           final base64Data = imageUrl.substring(base64Index + 7);
           final imageBytes = base64Decode(base64Data);
           
-          // 获取 MIME 类型
           final mimeMatch = RegExp(r'data:image/([^;]+)').firstMatch(imageUrl);
           final imageType = mimeMatch?.group(1) ?? 'png';
           final fileExtension = imageType == 'jpeg' || imageType == 'jpg' ? 'jpg' : 'png';
           
-          // 保存为临时文件
           final tempDir = await getTemporaryDirectory();
           final timestamp = DateTime.now().millisecondsSinceEpoch;
-          final tempImagePath = '${tempDir.path}/character_image_${timestamp}.$fileExtension';
-          imageFile = File(tempImagePath);
-          await imageFile.writeAsBytes(imageBytes);
-          
-          print('[CharacterGenerationPanel] Base64 图片已保存到临时文件: $tempImagePath');
+          final tempImagePath = '${tempDir.path}/character_upload_${timestamp}.$fileExtension';
+          final file = File(tempImagePath);
+          await file.writeAsBytes(imageBytes);
+          imagePath = tempImagePath;
+          print('✅ Base64图片已保存: $imagePath');
         } catch (e) {
           throw Exception('处理 base64 图片失败: $e');
         }
       } else {
         // 本地文件路径
-        imageFile = File(imageUrl);
-        if (!await imageFile.exists()) {
-          throw Exception('图片文件不存在: $imageUrl');
-        }
+        imagePath = imageUrl;
       }
+      
+      // 验证文件存在
+      File imageFile = File(imagePath);
+      if (!await imageFile.exists()) {
+        throw Exception('图片文件不存在: $imagePath');
+      }
+      
+      print('📤 准备上传角色图片: $imagePath');
       
       // 调用上传角色 API
       final response = await apiService.uploadCharacter(
-        imagePath: imageFile.path,
+        imagePath: imagePath,
         name: char['name'] ?? '未命名',
       );
       
@@ -7699,24 +8464,33 @@ class _CharacterGenerationPanelState extends State<CharacterGenerationPanel> {
         _creatingCharacters[index] = false;
       });
       
-      logService.info('角色创建成功', details: '角色代码: @${response.characterName}');
+      logService.info('角色上传成功', details: '角色代码: @${response.characterName}');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('角色创建成功！角色代码: @${response.characterName}'),
+          content: Text('角色上传成功！角色代码: @${response.characterName}'),
           backgroundColor: AnimeColors.miku,
           duration: Duration(seconds: 3),
         ),
       );
     } catch (e) {
-      logService.error('创建角色失败', details: e.toString());
+      logService.error('上传角色失败', details: e.toString());
       setState(() {
         _creatingCharacters[index] = false;
       });
       
       // 提取错误信息（如果是 ApiException，使用其 message）
       String errorMessage = e.toString();
+      bool isNetworkError = false;
+      
       if (e is ApiException) {
         errorMessage = e.message;
+        // 检查是否是网络错误
+        if (errorMessage.contains('Connection closed') || 
+            errorMessage.contains('网络请求失败') ||
+            errorMessage.contains('SocketException')) {
+          isNetworkError = true;
+          errorMessage = '网络连接不稳定，请重试';
+        }
       } else if (e is Exception) {
         errorMessage = e.toString().replaceFirst('Exception: ', '');
       }
@@ -7728,9 +8502,19 @@ class _CharacterGenerationPanelState extends State<CharacterGenerationPanel> {
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('创建角色失败: $errorMessage'),
+          content: Text(isNetworkError 
+              ? '上传角色失败: $errorMessage\n系统已自动重试，如仍失败请稍后再试'
+              : '上传角色失败: $errorMessage'),
           backgroundColor: AnimeColors.sakura,
-          duration: Duration(seconds: 4),
+          duration: Duration(seconds: isNetworkError ? 6 : 4),
+          action: isNetworkError ? SnackBarAction(
+            label: '重试',
+            textColor: Colors.white,
+            onPressed: () {
+              // 自动重试
+              _uploadCharacterToAPI(index);
+            },
+          ) : null,
         ),
       );
     }
@@ -7826,6 +8610,1232 @@ class _NoScriptToastWidgetState extends State<_NoScriptToastWidget> with SingleT
   }
 }
 
+// ==================== 角色生成简易设置对话框 ====================
+class _EasySettingsDialog extends StatefulWidget {
+  final String initialAspectRatio;
+  final List<String> aspectRatioOptions;
+  final List<PromptTemplate> styleTemplates;
+  final String? initialStyleTemplateId;
+  final TextEditingController stylePromptController;
+  final List<PromptTemplate> professionalTemplates;
+  final String? initialProfessionalTemplateId;
+  final TextEditingController professionalPromptController;
+  final String? referenceStyleImagePath;
+  final TextEditingController referenceStylePromptController;
+  final Function(String) onAspectRatioChanged;
+  final Function(String?) onStyleTemplateChanged;
+  final Function(String?) onProfessionalTemplateChanged;
+  final VoidCallback onPickReferenceImage;
+  final VoidCallback onClearReferenceImage;
+
+  const _EasySettingsDialog({
+    required this.initialAspectRatio,
+    required this.aspectRatioOptions,
+    required this.styleTemplates,
+    required this.initialStyleTemplateId,
+    required this.stylePromptController,
+    required this.professionalTemplates,
+    required this.initialProfessionalTemplateId,
+    required this.professionalPromptController,
+    required this.referenceStyleImagePath,
+    required this.referenceStylePromptController,
+    required this.onAspectRatioChanged,
+    required this.onStyleTemplateChanged,
+    required this.onProfessionalTemplateChanged,
+    required this.onPickReferenceImage,
+    required this.onClearReferenceImage,
+  });
+
+  @override
+  State<_EasySettingsDialog> createState() => _EasySettingsDialogState();
+}
+
+class _EasySettingsDialogState extends State<_EasySettingsDialog> {
+  late String _selectedAspectRatio;
+  late String? _selectedStyleTemplateId;
+  late String? _selectedProfessionalTemplateId;
+  
+  // 缓存选中的模板，避免重复查找（性能优化）
+  PromptTemplate? _cachedProfessionalTemplate;
+  
+  // 本地维护参考图片路径（对话框内部状态）
+  String? _localReferenceImagePath;
+  
+  @override
+  void initState() {
+    super.initState();
+    _selectedAspectRatio = widget.initialAspectRatio;
+    _selectedStyleTemplateId = widget.initialStyleTemplateId;
+    _selectedProfessionalTemplateId = widget.initialProfessionalTemplateId;
+    _localReferenceImagePath = widget.referenceStyleImagePath;
+    _updateCachedTemplate();
+  }
+  
+  @override
+  void didUpdateWidget(_EasySettingsDialog oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 当父组件传入的值改变时，更新本地状态
+    bool needsUpdate = false;
+    
+    if (oldWidget.referenceStyleImagePath != widget.referenceStyleImagePath) {
+      _localReferenceImagePath = widget.referenceStyleImagePath;
+      needsUpdate = true;
+    }
+    
+    // 如果选中ID改变，更新本地状态和缓存
+    if (oldWidget.initialProfessionalTemplateId != widget.initialProfessionalTemplateId) {
+      _selectedProfessionalTemplateId = widget.initialProfessionalTemplateId;
+      _updateCachedTemplate();
+      needsUpdate = true;
+    }
+    
+    // 如果模板列表改变，更新缓存
+    if (oldWidget.professionalTemplates != widget.professionalTemplates) {
+      _updateCachedTemplate();
+      needsUpdate = true;
+    }
+    
+    if (needsUpdate) {
+      setState(() {
+        // 批量更新UI
+      });
+    }
+  }
+  
+  // 更新缓存的模板（避免每次渲染都查找）
+  void _updateCachedTemplate() {
+    if (_selectedProfessionalTemplateId != null && widget.professionalTemplates.isNotEmpty) {
+      try {
+        _cachedProfessionalTemplate = widget.professionalTemplates.firstWhere(
+          (t) => t.id == _selectedProfessionalTemplateId,
+        );
+      } catch (e) {
+        _cachedProfessionalTemplate = null;
+      }
+    } else {
+      _cachedProfessionalTemplate = null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: AnimeColors.cardBg,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: Container(
+        width: 600,
+        constraints: BoxConstraints(maxHeight: 700),
+        padding: EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 标题栏
+            Row(
+              children: [
+                Container(
+                  padding: EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [AnimeColors.miku, AnimeColors.purple],
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Icon(Icons.tune_rounded, color: Colors.white, size: 24),
+                ),
+                SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '简易设置',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 22,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      Text(
+                        '配置图片生成参数',
+                        style: TextStyle(color: Colors.white54, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: Icon(Icons.close, color: Colors.white54),
+                  onPressed: () => Navigator.pop(context),
+                  padding: EdgeInsets.zero,
+                ),
+              ],
+            ),
+            SizedBox(height: 32),
+            
+            Expanded(
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // === 第一部分：图片比例 ===
+                    _buildSectionHeader(
+                      icon: Icons.aspect_ratio_rounded,
+                      title: '图片比例',
+                      subtitle: '选择生成图片的宽高比',
+                    ),
+                    SizedBox(height: 16),
+                    Container(
+                      padding: EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: AnimeColors.darkBg.withOpacity(0.5),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.white.withOpacity(0.1)),
+                      ),
+                      child: Wrap(
+                        spacing: 12,
+                        runSpacing: 12,
+                        children: widget.aspectRatioOptions.map((ratio) {
+                          final isSelected = ratio == _selectedAspectRatio;
+                          return GestureDetector(
+                            onTap: () {
+                              if (_selectedAspectRatio != ratio) {
+                                setState(() {
+                                  _selectedAspectRatio = ratio;
+                                });
+                                widget.onAspectRatioChanged(ratio);
+                              }
+                            },
+                            child: Container(
+                              padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                              decoration: BoxDecoration(
+                                gradient: isSelected
+                                    ? LinearGradient(
+                                        colors: [AnimeColors.miku, AnimeColors.purple],
+                                      )
+                                    : null,
+                                color: isSelected ? null : Colors.white.withOpacity(0.05),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: isSelected
+                                      ? AnimeColors.miku
+                                      : Colors.white.withOpacity(0.1),
+                                  width: isSelected ? 2 : 1,
+                                ),
+                              ),
+                              child: Text(
+                                ratio,
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 14,
+                                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+                                ),
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                    
+                    SizedBox(height: 32),
+                    
+                    // === 第二部分：参考风格 ===
+                    _buildSectionHeader(
+                      icon: Icons.palette_outlined,
+                      title: '参考风格',
+                      subtitle: '上传参考图片并设置风格提示词',
+                    ),
+                    SizedBox(height: 16),
+                    Container(
+                      padding: EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: AnimeColors.darkBg.withOpacity(0.5),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.white.withOpacity(0.1)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // 参考图片上传区域
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // 图片预览/上传按钮
+                              GestureDetector(
+                                onTap: widget.onPickReferenceImage,
+                                child: Container(
+                                  width: 120,
+                                  height: 120,
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey[800]?.withOpacity(0.3),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: _localReferenceImagePath != null
+                                          ? AnimeColors.miku.withOpacity(0.5)
+                                          : Colors.white.withOpacity(0.1),
+                                      width: 2,
+                                    ),
+                                  ),
+                                  child: _localReferenceImagePath != null
+                                      ? Stack(
+                                          children: [
+                                            ClipRRect(
+                                              borderRadius: BorderRadius.circular(10),
+                                              child: Image.file(
+                                                File(_localReferenceImagePath!),
+                                                fit: BoxFit.cover,
+                                                width: 120,
+                                                height: 120,
+                                                errorBuilder: (context, error, stackTrace) {
+                                                  return Center(
+                                                    child: Icon(
+                                                      Icons.broken_image,
+                                                      color: Colors.white38,
+                                                      size: 32,
+                                                    ),
+                                                  );
+                                                },
+                                              ),
+                                            ),
+                                            // 删除按钮（统一为垃圾桶图标）
+                                            Positioned(
+                                              top: 4,
+                                              right: 4,
+                                              child: Material(
+                                                color: Colors.transparent,
+                                                child: InkWell(
+                                                  onTap: () {
+                                                    // 立即更新对话框内部状态
+                                                    setState(() {
+                                                      _localReferenceImagePath = null;
+                                                    });
+                                                    // 通知父组件删除
+                                                    widget.onClearReferenceImage();
+                                                  },
+                                                  borderRadius: BorderRadius.circular(12),
+                                                  child: Container(
+                                                    padding: EdgeInsets.all(4),
+                                                    decoration: BoxDecoration(
+                                                      color: Colors.black.withOpacity(0.7),
+                                                      borderRadius: BorderRadius.circular(12),
+                                                      border: Border.all(
+                                                        color: Colors.red.withOpacity(0.3),
+                                                        width: 1,
+                                                      ),
+                                                    ),
+                                                    child: Icon(
+                                                      Icons.delete,
+                                                      size: 16,
+                                                      color: Colors.red.withOpacity(0.9),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        )
+                                      : Column(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            Icon(
+                                              Icons.add_photo_alternate,
+                                              color: Colors.white38,
+                                              size: 36,
+                                            ),
+                                            SizedBox(height: 8),
+                                            Text(
+                                              '上传图片',
+                                              style: TextStyle(
+                                                color: Colors.white38,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                ),
+                              ),
+                              SizedBox(width: 16),
+                              // 风格提示词输入（移除模板选择，只参考图片）
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      '风格提示词',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: AnimeColors.miku,
+                                        letterSpacing: 0.5,
+                                      ),
+                                    ),
+                                    SizedBox(height: 8),
+                                    TextField(
+                                      controller: widget.stylePromptController,
+                                      maxLines: 4,
+                                      style: TextStyle(color: Colors.white, fontSize: 13),
+                                      decoration: InputDecoration(
+                                        hintText: '输入风格描述，将与参考图片一起生效',
+                                        hintStyle: TextStyle(color: Colors.white38, fontSize: 12),
+                                        border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(12),
+                                          borderSide: BorderSide(color: Colors.white10),
+                                        ),
+                                        enabledBorder: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(12),
+                                          borderSide: BorderSide(color: Colors.white10),
+                                        ),
+                                        focusedBorder: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(12),
+                                          borderSide: BorderSide(color: AnimeColors.miku, width: 2),
+                                        ),
+                                        filled: true,
+                                        fillColor: AnimeColors.cardBg,
+                                        contentPadding: EdgeInsets.all(10),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    
+                    SizedBox(height: 32),
+                    
+                    // === 第三部分：专业提示词 ===
+                    _buildSectionHeader(
+                      icon: Icons.auto_awesome_rounded,
+                      title: '专业提示词',
+                      subtitle: '选择预设模板快速应用专业级提示词',
+                    ),
+                    SizedBox(height: 16),
+                    Container(
+                      padding: EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: AnimeColors.darkBg.withOpacity(0.5),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.white.withOpacity(0.1)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // 当前选择的模板显示（使用缓存，提升性能）
+                          if (_selectedProfessionalTemplateId != null && _cachedProfessionalTemplate != null)
+                            Container(
+                              padding: EdgeInsets.all(16),
+                              margin: EdgeInsets.only(bottom: 16),
+                              decoration: BoxDecoration(
+                                color: AnimeColors.purple.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: AnimeColors.purple.withOpacity(0.3)),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.check_circle, color: AnimeColors.purple, size: 20),
+                                  SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          '已选择：${_cachedProfessionalTemplate!.name}',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                        SizedBox(height: 4),
+                                        Text(
+                                          _cachedProfessionalTemplate!.content,
+                                          style: TextStyle(
+                                            color: Colors.white70,
+                                            fontSize: 12,
+                                          ),
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          // 操作按钮
+                          Row(
+                            children: [
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: () {
+                                    _showTemplatePickerDialog(
+                                      context,
+                                      title: '选择专业提示词模板',
+                                      templates: widget.professionalTemplates,
+                                      selectedId: _selectedProfessionalTemplateId,
+                                      onSelected: (templateId) {
+                                        // 立即更新对话框内部状态
+                                        setState(() {
+                                          _selectedProfessionalTemplateId = templateId;
+                                          _updateCachedTemplate();
+                                        });
+                                        // 通知父组件保存
+                                        widget.onProfessionalTemplateChanged(templateId);
+                                      },
+                                    );
+                                  },
+                                  icon: Icon(Icons.library_books, size: 18),
+                                  label: Text(
+                                    _selectedProfessionalTemplateId != null ? '更换模板' : '选择模板',
+                                    style: TextStyle(fontSize: 14),
+                                  ),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: AnimeColors.purple,
+                                    foregroundColor: Colors.white,
+                                    padding: EdgeInsets.symmetric(vertical: 14),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              SizedBox(width: 12),
+                              ElevatedButton.icon(
+                                onPressed: () {
+                                  _showPromptLibraryManagerDialog(context);
+                                },
+                                icon: Icon(Icons.settings, size: 18),
+                                label: Text('管理', style: TextStyle(fontSize: 14)),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AnimeColors.miku,
+                                  foregroundColor: Colors.white,
+                                  padding: EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                              ),
+                              if (_selectedProfessionalTemplateId != null) ...[
+                                SizedBox(width: 12),
+                                IconButton(
+                                  onPressed: () {
+                                    // 立即更新对话框内部状态
+                                    setState(() {
+                                      _selectedProfessionalTemplateId = null;
+                                      _cachedProfessionalTemplate = null;
+                                    });
+                                    // 通知父组件保存
+                                    widget.onProfessionalTemplateChanged(null);
+                                  },
+                                  icon: Icon(Icons.close, color: Colors.red.withOpacity(0.8)),
+                                  tooltip: '清除选择',
+                                  style: IconButton.styleFrom(
+                                    backgroundColor: Colors.red.withOpacity(0.1),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            
+            SizedBox(height: 24),
+            
+            // 底部提示
+            Container(
+              padding: EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AnimeColors.miku.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AnimeColors.miku.withOpacity(0.3)),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, color: AnimeColors.miku, size: 20),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      '所有设置将自动保存，生成图片时会自动应用这些配置',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+  }) {
+    return Row(
+      children: [
+        Container(
+          padding: EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                AnimeColors.miku.withOpacity(0.2),
+                AnimeColors.purple.withOpacity(0.2),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(icon, color: AnimeColors.miku, size: 20),
+        ),
+        SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+              ),
+              Text(
+                subtitle,
+                style: TextStyle(fontSize: 12, color: Colors.white54),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+  
+  // 显示提示词库管理对话框
+  static void _showPromptLibraryManagerDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => _PromptLibraryManagerDialog(),
+    );
+  }
+  
+  // 显示模板选择对话框
+  static void _showTemplatePickerDialog(
+    BuildContext context, {
+    required String title,
+    required List<PromptTemplate> templates,
+    required String? selectedId,
+    required Function(String?) onSelected,
+  }) {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: AnimeColors.cardBg,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Container(
+          width: 500,
+          constraints: BoxConstraints(maxHeight: 600),
+          padding: EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // 标题栏
+              Row(
+                children: [
+                  Icon(Icons.library_books, color: AnimeColors.purple, size: 24),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.close, color: Colors.white54),
+                    onPressed: () => Navigator.pop(context),
+                    padding: EdgeInsets.zero,
+                  ),
+                ],
+              ),
+              SizedBox(height: 20),
+              
+              // 模板列表
+              Expanded(
+                child: templates.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.folder_open, color: Colors.white38, size: 48),
+                            SizedBox(height: 16),
+                            Text(
+                              '暂无模板',
+                              style: TextStyle(color: Colors.white54, fontSize: 14),
+                            ),
+                            SizedBox(height: 8),
+                            Text(
+                              '请先在设置中添加提示词模板',
+                              style: TextStyle(color: Colors.white38, fontSize: 12),
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.builder(
+                        itemCount: templates.length + 1, // +1 for "不使用模板"
+                        itemBuilder: (context, index) {
+                          if (index == 0) {
+                            // "不使用模板" 选项
+                            final isSelected = selectedId == null;
+                            return InkWell(
+                              onTap: () {
+                                // 立即关闭对话框（提升响应速度）
+                                Navigator.pop(context);
+                                // 异步执行回调（避免阻塞UI）
+                                Future.microtask(() => onSelected(null));
+                              },
+                              child: Container(
+                                padding: EdgeInsets.all(16),
+                                margin: EdgeInsets.only(bottom: 8),
+                                decoration: BoxDecoration(
+                                  color: isSelected
+                                      ? AnimeColors.purple.withOpacity(0.15)
+                                      : Colors.white.withOpacity(0.03),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: isSelected
+                                        ? AnimeColors.purple
+                                        : Colors.white.withOpacity(0.1),
+                                    width: isSelected ? 2 : 1,
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      isSelected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+                                      color: isSelected ? AnimeColors.purple : Colors.white54,
+                                      size: 20,
+                                    ),
+                                    SizedBox(width: 12),
+                                    Text(
+                                      '不使用模板',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 14,
+                                        fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          }
+                          
+                          final template = templates[index - 1];
+                          final isSelected = template.id == selectedId;
+                          
+                          return InkWell(
+                            onTap: () {
+                              // 立即关闭对话框（提升响应速度）
+                              Navigator.pop(context);
+                              // 异步执行回调（避免阻塞UI）
+                              Future.microtask(() => onSelected(template.id));
+                            },
+                            child: Container(
+                              padding: EdgeInsets.all(16),
+                              margin: EdgeInsets.only(bottom: 8),
+                              decoration: BoxDecoration(
+                                color: isSelected
+                                    ? AnimeColors.purple.withOpacity(0.15)
+                                    : Colors.white.withOpacity(0.03),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: isSelected
+                                      ? AnimeColors.purple
+                                      : Colors.white.withOpacity(0.1),
+                                  width: isSelected ? 2 : 1,
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        isSelected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+                                        color: isSelected ? AnimeColors.purple : Colors.white54,
+                                        size: 20,
+                                      ),
+                                      SizedBox(width: 12),
+                                      Expanded(
+                                        child: Text(
+                                          template.name,
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 14,
+                                            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  SizedBox(height: 8),
+                                  Padding(
+                                    padding: EdgeInsets.only(left: 32),
+                                    child: Text(
+                                      template.content,
+                                      style: TextStyle(
+                                        color: Colors.white54,
+                                        fontSize: 12,
+                                      ),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ==================== 提示词库管理对话框 ====================
+class _PromptLibraryManagerDialog extends StatefulWidget {
+  const _PromptLibraryManagerDialog();
+
+  @override
+  State<_PromptLibraryManagerDialog> createState() => _PromptLibraryManagerDialogState();
+}
+
+class _PromptLibraryManagerDialogState extends State<_PromptLibraryManagerDialog> {
+  List<PromptTemplate> _prompts = [];
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _contentController = TextEditingController();
+  
+  @override
+  void initState() {
+    super.initState();
+    _loadPrompts();
+    // 监听 PromptStore 变化
+    promptStore.addListener(_loadPrompts);
+  }
+  
+  @override
+  void dispose() {
+    promptStore.removeListener(_loadPrompts);
+    _nameController.dispose();
+    _contentController.dispose();
+    super.dispose();
+  }
+  
+  Future<void> _loadPrompts() async {
+    if (mounted) {
+      setState(() {
+        // 使用 LLM 类别作为专用提示词库
+        _prompts = promptStore.getTemplates(PromptCategory.llm);
+      });
+    }
+  }
+  
+  // 显示添加/编辑对话框
+  void _showEditDialog({PromptTemplate? template}) {
+    if (template != null) {
+      _nameController.text = template.name;
+      _contentController.text = template.content;
+    } else {
+      _nameController.clear();
+      _contentController.clear();
+    }
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AnimeColors.cardBg,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(
+          template != null ? '编辑提示词' : '添加提示词',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: SizedBox(
+          width: 500,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '名称',
+                style: TextStyle(
+                  color: AnimeColors.miku,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              SizedBox(height: 8),
+              TextField(
+                controller: _nameController,
+                style: TextStyle(color: Colors.white),
+                decoration: InputDecoration(
+                  hintText: '输入提示词名称',
+                  hintStyle: TextStyle(color: Colors.white38),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.white10),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: AnimeColors.miku, width: 2),
+                  ),
+                  filled: true,
+                  fillColor: AnimeColors.darkBg,
+                  contentPadding: EdgeInsets.all(12),
+                ),
+              ),
+              SizedBox(height: 16),
+              Text(
+                '内容',
+                style: TextStyle(
+                  color: AnimeColors.miku,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              SizedBox(height: 8),
+              TextField(
+                controller: _contentController,
+                maxLines: 6,
+                style: TextStyle(color: Colors.white),
+                decoration: InputDecoration(
+                  hintText: '输入提示词内容',
+                  hintStyle: TextStyle(color: Colors.white38),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.white10),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: AnimeColors.miku, width: 2),
+                  ),
+                  filled: true,
+                  fillColor: AnimeColors.darkBg,
+                  contentPadding: EdgeInsets.all(12),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('取消', style: TextStyle(color: Colors.white54)),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              if (_nameController.text.trim().isEmpty || _contentController.text.trim().isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('请填写完整信息'),
+                    backgroundColor: AnimeColors.sakura,
+                  ),
+                );
+                return;
+              }
+              
+              if (template != null) {
+                // 编辑现有模板
+                await promptStore.updateTemplate(
+                  template.copyWith(
+                    name: _nameController.text.trim(),
+                    content: _contentController.text.trim(),
+                  ),
+                );
+              } else {
+                // 添加新模板
+                await promptStore.addTemplate(
+                  PromptTemplate(
+                    id: DateTime.now().millisecondsSinceEpoch.toString(),
+                    category: PromptCategory.llm,
+                    name: _nameController.text.trim(),
+                    content: _contentController.text.trim(),
+                    createdAt: DateTime.now(),
+                    updatedAt: DateTime.now(),
+                  ),
+                );
+              }
+              
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(template != null ? '提示词已更新' : '提示词已添加'),
+                  backgroundColor: AnimeColors.miku,
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AnimeColors.miku,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: Text('保存', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  // 删除提示词
+  Future<void> _deletePrompt(PromptTemplate template) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AnimeColors.cardBg,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text('确认删除', style: TextStyle(color: Colors.white)),
+        content: Text(
+          '确定要删除提示词 "${template.name}" 吗？',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text('取消', style: TextStyle(color: Colors.white54)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: Text('删除', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+    
+    if (confirmed == true) {
+      await promptStore.deleteTemplate(template.id, PromptCategory.llm);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('已删除提示词'),
+          backgroundColor: AnimeColors.miku,
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: AnimeColors.cardBg,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: Container(
+        width: 700,
+        constraints: BoxConstraints(maxHeight: 700),
+        padding: EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 标题栏
+            Row(
+              children: [
+                Container(
+                  padding: EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [AnimeColors.miku, AnimeColors.purple],
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 24),
+                ),
+                SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '专业提示词库',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 22,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      Text(
+                        '管理专用于角色生成的提示词模板',
+                        style: TextStyle(color: Colors.white54, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
+                // 添加按钮
+                ElevatedButton.icon(
+                  onPressed: () => _showEditDialog(),
+                  icon: Icon(Icons.add, size: 18),
+                  label: Text('添加'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AnimeColors.miku,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  ),
+                ),
+                SizedBox(width: 12),
+                IconButton(
+                  icon: Icon(Icons.close, color: Colors.white54),
+                  onPressed: () => Navigator.pop(context),
+                  padding: EdgeInsets.zero,
+                ),
+              ],
+            ),
+            SizedBox(height: 24),
+            
+            // 提示词列表
+            Expanded(
+              child: _prompts.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.folder_open, color: Colors.white38, size: 64),
+                          SizedBox(height: 16),
+                          Text(
+                            '暂无提示词',
+                            style: TextStyle(color: Colors.white54, fontSize: 16),
+                          ),
+                          SizedBox(height: 8),
+                          Text(
+                            '点击"添加"按钮创建你的第一个提示词模板',
+                            style: TextStyle(color: Colors.white38, fontSize: 13),
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: _prompts.length,
+                      itemBuilder: (context, index) {
+                        final prompt = _prompts[index];
+                        return Container(
+                          margin: EdgeInsets.only(bottom: 12),
+                          padding: EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: AnimeColors.darkBg.withOpacity(0.5),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: Colors.white.withOpacity(0.1)),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // 图标
+                              Container(
+                                padding: EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: AnimeColors.miku.withOpacity(0.15),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Icon(
+                                  Icons.description,
+                                  color: AnimeColors.miku,
+                                  size: 20,
+                                ),
+                              ),
+                              SizedBox(width: 16),
+                              // 内容
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      prompt.name,
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    SizedBox(height: 8),
+                                    Text(
+                                      prompt.content,
+                                      style: TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 13,
+                                      ),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              SizedBox(width: 12),
+                              // 操作按钮
+                              Column(
+                                children: [
+                                  IconButton(
+                                    icon: Icon(Icons.edit, size: 18, color: AnimeColors.miku),
+                                    tooltip: '编辑',
+                                    onPressed: () => _showEditDialog(template: prompt),
+                                    padding: EdgeInsets.zero,
+                                    constraints: BoxConstraints(),
+                                  ),
+                                  SizedBox(height: 8),
+                                  IconButton(
+                                    icon: Icon(Icons.delete, size: 18, color: Colors.red.withOpacity(0.8)),
+                                    tooltip: '删除',
+                                    onPressed: () => _deletePrompt(prompt),
+                                    padding: EdgeInsets.zero,
+                                    constraints: BoxConstraints(),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // 场景生成面板
 class SceneGenerationPanel extends StatefulWidget {
   const SceneGenerationPanel({super.key});
@@ -7839,28 +9849,390 @@ class _SceneGenerationPanelState extends State<SceneGenerationPanel> {
   List<Map<String, dynamic>> _scenes = [];
   String? _selectedTemplate; // 选中的提示词模板名称
   Map<String, String> _promptTemplates = {}; // 场景提示词模板列表
+  
   // 为每个场景的图片提示词缓存TextEditingController
   final Map<int, TextEditingController> _imagePromptControllers = {};
   // 记录每个场景是否正在生成图片
   final Map<int, bool> _generatingImages = {};
 
+  // 参考风格相关
+  final ImagePicker _imagePicker = ImagePicker();
+  String? _referenceStyleImagePath; // 参考风格图片路径
+  final TextEditingController _referenceStylePromptController = TextEditingController(text: '参考图片风格，');
+
+  // === 简易设置相关 ===
+  // 图片分辨率设置（使用比例而不是具体像素）
+  String _selectedAspectRatio = '1:1'; // 默认比例
+  final Map<String, Map<String, int>> _aspectRatioToPixels = {
+    '1:1': {'width': 1024, 'height': 1024},
+    '9:16': {'width': 768, 'height': 1344},
+    '16:9': {'width': 1344, 'height': 768},
+    '3:4': {'width': 912, 'height': 1216},
+    '4:3': {'width': 1216, 'height': 912},
+  };
+
+  // 风格提示词模板
+  String? _selectedStyleTemplateId; // 选中的风格模板ID
+  List<PromptTemplate> _styleTemplates = []; // 风格模板列表
+  final TextEditingController _stylePromptController = TextEditingController();
+
+  // 专业提示词模板
+  String? _selectedProfessionalTemplateId; // 选中的专业模板ID
+  List<PromptTemplate> _professionalTemplates = []; // 专业模板列表
+  final TextEditingController _professionalPromptController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
-    _scenes = workspaceState.scenes;
+    // 同步场景列表（从持久化存储加载的场景）
+    _scenes = List<Map<String, dynamic>>.from(workspaceState.scenes);
     _loadPromptTemplates();
     _loadSelectedTemplate();
     _initializeControllers();
+    _loadReferenceStyle(); // 加载保存的参考风格设置
+    _loadEasySettings(); // 加载简易设置
+    _loadEasySettingsTemplates(); // 加载简易设置的模板
+    
+    // 监听 PromptStore 变化
+    promptStore.addListener(_onPromptStoreChanged);
+    // 监听 WorkspaceState 变化
+    workspaceState.addListener(_onWorkspaceStateChanged);
+    // 监听提示词的变化，实现自动保存
+    _stylePromptController.addListener(_saveEasySettings);
+    _professionalPromptController.addListener(_saveEasySettings);
+  }
+  
+  /// 当 PromptStore 发生变化时重新加载模板
+  void _onPromptStoreChanged() {
+    _loadEasySettingsTemplates();
+  }
+  
+  /// 当 WorkspaceState 发生变化时更新状态
+  void _onWorkspaceStateChanged() {
+    if (mounted) {
+      setState(() {
+        // 同步场景列表
+        _scenes = workspaceState.scenes;
+        // 重新初始化控制器
+        _initializeControllers();
+      });
+    }
   }
 
   @override
   void dispose() {
+    // 移除 PromptStore 监听器
+    promptStore.removeListener(_onPromptStoreChanged);
+    // 移除 WorkspaceState 监听器
+    workspaceState.removeListener(_onWorkspaceStateChanged);
+    
     // 清理所有Controller
     for (var controller in _imagePromptControllers.values) {
       controller.dispose();
     }
     _imagePromptControllers.clear();
+    
+    // 清理参考风格相关
+    _referenceStylePromptController.dispose();
+    _stylePromptController.removeListener(_saveEasySettings);
+    _stylePromptController.dispose();
+    _professionalPromptController.removeListener(_saveEasySettings);
+    _professionalPromptController.dispose();
+    
     super.dispose();
+  }
+
+  // 加载参考风格设置
+  Future<void> _loadReferenceStyle() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedImagePath = prefs.getString('scene_reference_style_image');
+      final savedPrompt = prefs.getString('scene_reference_style_prompt');
+      String? resolvedImagePath;
+      if (savedImagePath != null && savedImagePath.isNotEmpty) {
+        final file = File(savedImagePath);
+        if (await file.exists()) {
+          resolvedImagePath = savedImagePath;
+        }
+      }
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _referenceStyleImagePath = resolvedImagePath;
+        if (savedPrompt != null && savedPrompt.isNotEmpty) {
+          _referenceStylePromptController.text = savedPrompt;
+        }
+      });
+    } catch (e) {
+      logService.error('加载场景参考风格设置失败', details: e.toString());
+    }
+  }
+
+  // 保存参考风格设置
+  Future<void> _saveReferenceStyle() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (_referenceStyleImagePath != null && _referenceStyleImagePath!.isNotEmpty) {
+        await prefs.setString('scene_reference_style_image', _referenceStyleImagePath!);
+      } else {
+        await prefs.remove('scene_reference_style_image');
+      }
+      await prefs.setString('scene_reference_style_prompt', _referenceStylePromptController.text);
+    } catch (e) {
+      logService.error('保存场景参考风格设置失败', details: e.toString());
+    }
+  }
+
+  // 加载提示词模板
+  Future<void> _loadPromptTemplates() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final promptsJson = prefs.getString('prompts');
+      if (promptsJson != null) {
+        final decoded = await compute(_decodeScenePromptTemplates, promptsJson);
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _promptTemplates = decoded;
+        });
+      }
+    } catch (e) {
+      logService.error('加载场景提示词模板失败', details: e.toString());
+    }
+  }
+
+  // 加载保存的模板选择
+  Future<void> _loadSelectedTemplate() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedTemplate = prefs.getString('scene_selected_template');
+      if (savedTemplate != null && savedTemplate.isNotEmpty) {
+        setState(() {
+          _selectedTemplate = savedTemplate;
+        });
+      }
+    } catch (e) {
+      logService.error('加载保存的场景模板选择失败', details: e.toString());
+    }
+  }
+
+  // 保存模板选择
+  Future<void> _saveSelectedTemplate() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (_selectedTemplate != null && _selectedTemplate!.isNotEmpty) {
+        await prefs.setString('scene_selected_template', _selectedTemplate!);
+      } else {
+        await prefs.remove('scene_selected_template');
+      }
+    } catch (e) {
+      logService.error('保存场景模板选择失败', details: e.toString());
+    }
+  }
+
+  // === 简易设置相关方法 ===
+
+  // 加载简易设置模板
+  Future<void> _loadEasySettingsTemplates() async {
+    try {
+      setState(() {
+        // 加载风格提示词模板（使用 image 类别）
+        _styleTemplates = promptStore.getTemplates(PromptCategory.image);
+        // 加载专业提示词模板（使用 llm 类别）
+        _professionalTemplates = promptStore.getTemplates(PromptCategory.llm);
+      });
+      logService.info('加载场景简易设置模板', details: '风格模板: ${_styleTemplates.length}, 专业模板: ${_professionalTemplates.length}');
+    } catch (e) {
+      logService.error('加载场景简易设置模板失败', details: e.toString());
+    }
+  }
+
+  // 加载简易设置
+  Future<void> _loadEasySettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (mounted) {
+        setState(() {
+          // 加载比例设置
+          _selectedAspectRatio = prefs.getString('scene_easy_aspect_ratio') ?? '1:1';
+
+          // 加载风格提示词模板ID和内容
+          _selectedStyleTemplateId = prefs.getString('scene_easy_style_template_id');
+          final savedStylePrompt = prefs.getString('scene_easy_style_prompt');
+          if (savedStylePrompt != null) {
+            _stylePromptController.text = savedStylePrompt;
+          }
+
+          // 加载专业提示词模板ID和内容
+          _selectedProfessionalTemplateId = prefs.getString('scene_easy_professional_template_id');
+          final savedProfessionalPrompt = prefs.getString('scene_easy_professional_prompt');
+          if (savedProfessionalPrompt != null) {
+            _professionalPromptController.text = savedProfessionalPrompt;
+          }
+        });
+      }
+      logService.info('加载场景简易设置', details: '比例: $_selectedAspectRatio');
+    } catch (e) {
+      logService.error('加载场景简易设置失败', details: e.toString());
+    }
+  }
+
+  // 保存简易设置（自动触发）
+  Future<void> _saveEasySettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('scene_easy_aspect_ratio', _selectedAspectRatio);
+      await prefs.setString('scene_easy_style_prompt', _stylePromptController.text);
+      await prefs.setString('scene_easy_professional_prompt', _professionalPromptController.text);
+
+      // 保存模板ID
+      if (_selectedStyleTemplateId != null) {
+        await prefs.setString('scene_easy_style_template_id', _selectedStyleTemplateId!);
+      } else {
+        await prefs.remove('scene_easy_style_template_id');
+      }
+      if (_selectedProfessionalTemplateId != null) {
+        await prefs.setString('scene_easy_professional_template_id', _selectedProfessionalTemplateId!);
+      } else {
+        await prefs.remove('scene_easy_professional_template_id');
+      }
+    } catch (e) {
+      logService.error('保存场景简易设置失败', details: e.toString());
+    }
+  }
+
+  // 显示简易设置对话框
+  void _showEasySettingsDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => _EasySettingsDialog(
+        initialAspectRatio: _selectedAspectRatio,
+        aspectRatioOptions: _aspectRatioToPixels.keys.toList(),
+        styleTemplates: _styleTemplates,
+        initialStyleTemplateId: _selectedStyleTemplateId,
+        stylePromptController: _stylePromptController,
+        professionalTemplates: _professionalTemplates,
+        initialProfessionalTemplateId: _selectedProfessionalTemplateId,
+        professionalPromptController: _professionalPromptController,
+        referenceStyleImagePath: _referenceStyleImagePath,
+        referenceStylePromptController: _referenceStylePromptController,
+        onAspectRatioChanged: (newRatio) {
+          setState(() {
+            _selectedAspectRatio = newRatio;
+          });
+          _saveEasySettings();
+        },
+        onStyleTemplateChanged: (templateId) {
+          setState(() {
+            _selectedStyleTemplateId = templateId;
+            if (templateId != null) {
+              final template = _styleTemplates.firstWhere((t) => t.id == templateId);
+              _stylePromptController.text = template.content;
+            }
+          });
+          _saveEasySettings();
+        },
+        onProfessionalTemplateChanged: (templateId) {
+          Future.microtask(() {
+            setState(() {
+              _selectedProfessionalTemplateId = templateId;
+              if (templateId != null) {
+                final template = _professionalTemplates.firstWhere((t) => t.id == templateId);
+                _professionalPromptController.text = template.content;
+              }
+            });
+            _saveEasySettings();
+          });
+        },
+        onPickReferenceImage: () async {
+          Navigator.pop(context);
+          await _pickReferenceStyleImage();
+          _showEasySettingsDialog();
+        },
+        onClearReferenceImage: () {
+          setState(() {
+            _referenceStyleImagePath = null;
+          });
+          Future.microtask(() => _saveReferenceStyle());
+        },
+      ),
+    );
+  }
+
+  // 显示模板选择对话框
+  void _showTemplateSelector() {
+    showDialog(
+      context: context,
+      builder: (context) => _PromptTemplateManagerDialog(
+        category: 'scene',
+        selectedTemplate: _selectedTemplate,
+        accentColor: AnimeColors.miku,
+        onSelect: (template) {
+          setState(() {
+            _selectedTemplate = template;
+          });
+          if (template != null) {
+            _saveSelectedTemplate();
+          }
+        },
+        onSave: () {
+          _loadPromptTemplates();
+        },
+      ),
+    );
+  }
+
+  // 上传参考风格图片
+  Future<void> _pickReferenceStyleImage() async {
+    try {
+      final XFile? pickedFile = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 90,
+      );
+
+      if (pickedFile != null) {
+        setState(() {
+          _referenceStyleImagePath = pickedFile.path;
+        });
+        await _saveReferenceStyle();
+        logService.action('上传场景参考风格图片', details: pickedFile.path);
+      }
+    } catch (e) {
+      logService.error('上传场景参考风格图片失败', details: e.toString());
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('上传图片失败: $e'),
+            backgroundColor: AnimeColors.sakura,
+          ),
+        );
+      }
+    }
+  }
+
+  // 清空参考风格图片
+  Future<void> _clearReferenceStyleImage() async {
+    try {
+      setState(() {
+        _referenceStyleImagePath = null;
+      });
+      await _saveReferenceStyle();
+      logService.action('清空场景参考风格图片');
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('已清空参考风格图片'),
+            backgroundColor: AnimeColors.miku,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      logService.error('清空场景参考风格图片失败', details: e.toString());
+    }
   }
 
   // 初始化Controller
@@ -7888,82 +10260,97 @@ class _SceneGenerationPanelState extends State<SceneGenerationPanel> {
     return _imagePromptControllers[index]!;
   }
 
-  // 加载提示词模板
-  Future<void> _loadPromptTemplates() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final promptsJson = prefs.getString('prompts');
-      if (promptsJson != null) {
-        final decoded = jsonDecode(promptsJson) as Map<String, dynamic>;
-        setState(() {
-          _promptTemplates = Map<String, String>.from(decoded['scene'] ?? {});
-        });
-      }
-    } catch (e) {
-      logService.error('加载提示词模板失败', details: e.toString());
-    }
-  }
-
-  // 加载保存的模板选择
-  Future<void> _loadSelectedTemplate() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final savedTemplate = prefs.getString('scene_selected_template');
-      if (savedTemplate != null && savedTemplate.isNotEmpty) {
-        setState(() {
-          _selectedTemplate = savedTemplate;
-        });
-      }
-    } catch (e) {
-      logService.error('加载保存的模板选择失败', details: e.toString());
-    }
-  }
-
-  // 保存模板选择
-  Future<void> _saveSelectedTemplate() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      if (_selectedTemplate != null) {
-        await prefs.setString('scene_selected_template', _selectedTemplate!);
-      } else {
-        await prefs.remove('scene_selected_template');
-      }
-      logService.info('保存模板选择', details: _selectedTemplate ?? '不使用模板');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('模板选择已保存'),
-            backgroundColor: AnimeColors.miku,
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
-    } catch (e) {
-      logService.error('保存模板选择失败', details: e.toString());
-    }
-  }
-
-  // 显示模板选择对话框
-  void _showTemplateSelector() {
+  // 显示删除所有内容的确认对话框
+  void _showClearAllDialog() {
     showDialog(
       context: context,
-      builder: (context) => _PromptTemplateManagerDialog(
-        category: 'scene',
-        selectedTemplate: _selectedTemplate,
-        accentColor: AnimeColors.miku,
-        onSelect: (template) {
-          setState(() {
-            _selectedTemplate = template;
-          });
-          if (template != null) {
-            _saveSelectedTemplate();
-          }
-        },
-        onSave: () {
-          _loadPromptTemplates();
-        },
+      builder: (context) => AlertDialog(
+        backgroundColor: AnimeColors.cardBg,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 24),
+            SizedBox(width: 12),
+            Text('确认删除', style: TextStyle(color: Colors.white)),
+          ],
+        ),
+        content: Text(
+          '确定要删除所有场景吗？\n此操作不可恢复！',
+          style: TextStyle(color: Colors.white70, fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('取消', style: TextStyle(color: Colors.white70)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _clearAllScenes();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red.withOpacity(0.8),
+            ),
+            child: Text('确认删除', style: TextStyle(color: Colors.white)),
+          ),
+        ],
       ),
     );
+  }
+  
+  // 删除所有场景
+  void _clearAllScenes() {
+    setState(() {
+      _scenes.clear();
+      workspaceState.clearScenes();
+      _imagePromptControllers.values.forEach((controller) => controller.dispose());
+      _imagePromptControllers.clear();
+      _generatingImages.clear();
+    });
+    
+    logService.info('已清空所有场景');
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('已删除所有场景'),
+          backgroundColor: AnimeColors.miku,
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+  
+  // 修复JSON中的引号问题
+  String _fixJsonQuotes(String json) {
+    try {
+      // 使用正则表达式修复字段值中的未转义双引号
+      // 匹配模式：": "值内容"
+      final pattern = RegExp(r'(":\s*")([^"]*)"([^"]*)"([^"]*)("(?:,|\}|\]))');
+      
+      String fixed = json;
+      int maxIterations = 10; // 防止无限循环
+      int iterations = 0;
+      
+      while (pattern.hasMatch(fixed) && iterations < maxIterations) {
+        fixed = fixed.replaceAllMapped(pattern, (match) {
+          final prefix = match.group(1)!; // ": "
+          final before = match.group(2)!;
+          final middle = match.group(3)!;
+          final after = match.group(4)!;
+          final suffix = match.group(5)!; // " 或 ",
+          
+          // 将值中的引号替换为单引号
+          return '$prefix$before\'$middle\'$after$suffix';
+        });
+        iterations++;
+      }
+      
+      return fixed;
+    } catch (e) {
+      logService.warn('JSON引号修复失败', details: e.toString());
+      return json; // 如果修复失败，返回原始内容
+    }
   }
 
   Future<void> _generateScenes() async {
@@ -7990,7 +10377,12 @@ class _SceneGenerationPanelState extends State<SceneGenerationPanel> {
       String systemPrompt = '''你是一个专业的动漫场景设计师。请根据剧本内容分析并生成场景列表。
 请以JSON格式返回，格式如下：
 [{"name": "场景名", "description": "场景描述", "atmosphere": "氛围", "time": "时间"}]
-只返回JSON数组，不要其他内容。''';
+
+⚠️ 重要：
+1. 只返回JSON数组，不要其他内容
+2. 所有字段值中不要使用双引号，使用单引号或书名号代替
+3. 确保JSON格式正确，所有字段都要用双引号包裹
+4. description字段避免过长，控制在100字以内''';
       
       // 如果选择了模板，在系统提示词后加上模板内容
       if (_selectedTemplate != null && _promptTemplates.containsKey(_selectedTemplate)) {
@@ -8016,15 +10408,51 @@ class _SceneGenerationPanelState extends State<SceneGenerationPanel> {
       );
 
       final content = response.choices.first.message.content;
+      logService.info('场景生成API返回内容', details: content.substring(0, content.length > 500 ? 500 : content.length));
+      
       try {
-        final List<dynamic> parsed = jsonDecode(content);
+        // 清理可能的markdown代码块包裹
+        String cleanedContent = content.trim();
+        if (cleanedContent.startsWith('```json')) {
+          cleanedContent = cleanedContent.substring(7);
+        } else if (cleanedContent.startsWith('```')) {
+          cleanedContent = cleanedContent.substring(3);
+        }
+        if (cleanedContent.endsWith('```')) {
+          cleanedContent = cleanedContent.substring(0, cleanedContent.length - 3);
+        }
+        cleanedContent = cleanedContent.trim();
+        
+        // 🔧 修复常见的JSON格式问题
+        // 1. 替换字段值中的未转义双引号（排除JSON结构的双引号）
+        cleanedContent = _fixJsonQuotes(cleanedContent);
+        
+        logService.info('清理后的JSON内容', details: cleanedContent.substring(0, cleanedContent.length > 300 ? 300 : cleanedContent.length));
+        
+        final List<dynamic> parsed = jsonDecode(cleanedContent);
         workspaceState.clearScenes();
         for (var scene in parsed) {
           final sceneMap = Map<String, dynamic>.from(scene);
-          // 确保每个场景都有imagePrompt和imageUrl字段
-          if (!sceneMap.containsKey('imagePrompt')) {
-            sceneMap['imagePrompt'] = '';
+          
+          // 构建图片提示词（从场景描述信息中提取）
+          final List<String> promptParts = [];
+          if (sceneMap['name'] != null && sceneMap['name'].toString().isNotEmpty) {
+            promptParts.add(sceneMap['name'].toString());
           }
+          if (sceneMap['description'] != null && sceneMap['description'].toString().isNotEmpty) {
+            promptParts.add(sceneMap['description'].toString());
+          }
+          if (sceneMap['atmosphere'] != null && sceneMap['atmosphere'].toString().isNotEmpty) {
+            promptParts.add(sceneMap['atmosphere'].toString());
+          }
+          if (sceneMap['time'] != null && sceneMap['time'].toString().isNotEmpty) {
+            promptParts.add(sceneMap['time'].toString());
+          }
+          
+          // 将组合的提示词放入 imagePrompt
+          sceneMap['imagePrompt'] = promptParts.join(', ');
+          
+          // 确保每个场景都有imageUrl字段
           if (!sceneMap.containsKey('imageUrl')) {
             sceneMap['imageUrl'] = null;
           }
@@ -8039,7 +10467,10 @@ class _SceneGenerationPanelState extends State<SceneGenerationPanel> {
           SnackBar(content: Text('成功生成${_scenes.length}个场景!'), backgroundColor: AnimeColors.miku),
         );
       } catch (e) {
-        logService.warn('场景JSON解析失败');
+        logService.warn('场景JSON解析失败', details: '错误: $e\n原始内容前200字符: ${content.substring(0, content.length > 200 ? 200 : content.length)}');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('场景解析失败，请检查提示词模板'), backgroundColor: AnimeColors.sakura),
+        );
       }
     } catch (e) {
       logService.error('场景生成失败', details: e.toString());
@@ -8051,10 +10482,21 @@ class _SceneGenerationPanelState extends State<SceneGenerationPanel> {
     }
   }
 
+  // 显示"请先生成剧本"提示弹窗（渐隐效果）
+  void _showNoScriptToast() {
+    showDialog(
+      context: context,
+      barrierColor: Colors.transparent,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return _NoScriptToastWidget();
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final hasScript = workspaceState.script.isNotEmpty;
-
+    final hasScript = workspaceState.script.isNotEmpty && workspaceState.script.trim().isNotEmpty;
     return Padding(
       padding: EdgeInsets.all(28),
       child: Column(
@@ -8065,6 +10507,47 @@ class _SceneGenerationPanelState extends State<SceneGenerationPanel> {
               Icon(Icons.landscape_outlined, color: AnimeColors.blue, size: 28),
               SizedBox(width: 12),
               Text('场景生成', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: Colors.white)),
+              SizedBox(width: 12),
+              // 简易设置按钮
+              InkWell(
+                onTap: _showEasySettingsDialog,
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  padding: EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        AnimeColors.miku.withOpacity(0.2),
+                        AnimeColors.purple.withOpacity(0.2),
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: AnimeColors.miku.withOpacity(0.3),
+                      width: 1.5,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.tune_rounded,
+                        size: 18,
+                        color: AnimeColors.miku,
+                      ),
+                      SizedBox(width: 6),
+                      Text(
+                        '设置',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: AnimeColors.miku,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
               Spacer(),
               // 提示词模板选择按钮
               TextButton.icon(
@@ -8088,17 +10571,14 @@ class _SceneGenerationPanelState extends State<SceneGenerationPanel> {
                 ),
               ),
               SizedBox(width: 8),
-              // 保存按钮
-              if (_selectedTemplate != null)
-                IconButton(
-                  icon: Icon(Icons.save, size: 18, color: AnimeColors.miku),
-                  tooltip: '保存模板选择',
-                  onPressed: () {
-                    _saveSelectedTemplate();
-                  },
-                  padding: EdgeInsets.zero,
-                  constraints: BoxConstraints(),
-                ),
+              // 删除所有内容按钮
+              IconButton(
+                icon: Icon(Icons.delete_sweep, size: 20, color: Colors.red.withOpacity(0.8)),
+                tooltip: '删除所有场景',
+                onPressed: () => _showClearAllDialog(),
+                padding: EdgeInsets.zero,
+                constraints: BoxConstraints(),
+              ),
               if (!hasScript)
                 Container(
                   padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -8115,17 +10595,32 @@ class _SceneGenerationPanelState extends State<SceneGenerationPanel> {
                   ),
                 ),
               SizedBox(width: 16),
-              ElevatedButton.icon(
-                onPressed: _isLoading || !hasScript ? null : _generateScenes,
-                icon: _isLoading 
-                    ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : Icon(Icons.auto_awesome, size: 18),
-                label: Text(_isLoading ? '生成中...' : '根据剧本生成'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AnimeColors.blue,
-                  foregroundColor: Colors.white,
-                  padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                ),
+              // 使用 Stack 来覆盖按钮，实现灰色状态下的点击提示
+              Stack(
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: (_isLoading || !hasScript) ? null : _generateScenes,
+                    icon: _isLoading 
+                        ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        : Icon(Icons.auto_awesome, size: 18),
+                    label: Text(_isLoading ? '生成中...' : '根据剧本生成'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: hasScript ? AnimeColors.miku : Colors.grey,
+                      foregroundColor: Colors.white,
+                      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    ),
+                  ),
+                  if (!hasScript)
+                    Positioned.fill(
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: _showNoScriptToast,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ],
           ),
@@ -8143,13 +10638,7 @@ class _SceneGenerationPanelState extends State<SceneGenerationPanel> {
                       ],
                     ),
                   )
-                : GridView.builder(
-                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 3,
-                      crossAxisSpacing: 16,
-                      mainAxisSpacing: 16,
-                      childAspectRatio: 1.2,
-                    ),
+                : ListView.builder(
                     itemCount: _scenes.length,
                     itemBuilder: (context, index) => _buildSceneCard(_scenes[index]),
                   ),
@@ -8164,52 +10653,110 @@ class _SceneGenerationPanelState extends State<SceneGenerationPanel> {
     final imagePromptController = _getImagePromptController(index);
     final isGenerating = _generatingImages[index] ?? false;
     final imageUrl = scene['imageUrl'] as String?;
+    final sceneName = scene['name'] ?? '未命名场景';
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-        child: Container(
-          padding: EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(colors: [AnimeColors.blue.withOpacity(0.15), AnimeColors.purple.withOpacity(0.1)]),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AnimeColors.blue.withOpacity(0.3)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(Icons.landscape, color: AnimeColors.blue, size: 20),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(scene['name'] ?? '未命名场景', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
-                  ),
-                ],
+    return Container(
+      margin: EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: Colors.grey[850]?.withOpacity(0.6),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withOpacity(0.1), width: 1),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 顶部：场景名称、按钮
+          Container(
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(color: Colors.white.withOpacity(0.1), width: 1),
               ),
-              SizedBox(height: 10),
-              // 场景信息
-              Expanded(
-                child: SingleChildScrollView(
+            ),
+            child: Row(
+              children: [
+                // 场景名称（蓝色）
+                Text(
+                  sceneName,
+                  style: TextStyle(
+                    color: AnimeColors.blue,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 16,
+                  ),
+                ),
+                Spacer(),
+                // "默认"按钮
+                TextButton(
+                  onPressed: () {},
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    minimumSize: Size(0, 0),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    backgroundColor: Colors.grey[700]?.withOpacity(0.3),
+                  ),
+                  child: Text(
+                    '默认',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
+                SizedBox(width: 8),
+                // "详情"按钮
+                TextButton(
+                  onPressed: () {},
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    minimumSize: Size(0, 0),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: Text(
+                    '详情',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
+                SizedBox(width: 8),
+                // 删除按钮
+                IconButton(
+                  icon: Icon(Icons.delete_outline, color: Colors.white54, size: 18),
+                  tooltip: '删除场景',
+                  onPressed: () {
+                    setState(() {
+                      _scenes.removeAt(index);
+                      workspaceState.removeScene(index);
+                      _imagePromptControllers[index]?.dispose();
+                      _imagePromptControllers.remove(index);
+                      _generatingImages.remove(index);
+                    });
+                  },
+                  padding: EdgeInsets.all(4),
+                  constraints: BoxConstraints(),
+                ),
+              ],
+            ),
+          ),
+          // 主体：左右布局
+          Padding(
+            padding: EdgeInsets.all(16),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 左侧：提示词输入框（占据约2/3宽度）
+                Expanded(
+                  flex: 2,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(scene['description'] ?? '', style: TextStyle(color: Colors.white70, fontSize: 12), maxLines: 3, overflow: TextOverflow.ellipsis),
-                      if (scene['time'] != null) ...[
-                        SizedBox(height: 8),
-                        Text('时间: ${scene['time']}', style: TextStyle(color: AnimeColors.blue, fontSize: 11)),
-                      ],
-                      SizedBox(height: 12),
-                      // 图片提示词输入框
-                      Text('图片提示词', style: TextStyle(color: AnimeColors.blue, fontSize: 11, fontWeight: FontWeight.w600)),
-                      SizedBox(height: 6),
                       Container(
-                        height: 80,
+                        height: 200, // 固定高度，可滚动
                         decoration: BoxDecoration(
-                          color: AnimeColors.cardBg,
+                          color: Colors.grey[800]?.withOpacity(0.3),
                           borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.white10),
+                          border: Border.all(color: Colors.white.withOpacity(0.1)),
                         ),
                         child: TextField(
                           controller: imagePromptController,
@@ -8217,14 +10764,18 @@ class _SceneGenerationPanelState extends State<SceneGenerationPanel> {
                           readOnly: false,
                           enableInteractiveSelection: true,
                           maxLines: null,
-                          minLines: 2,
+                          minLines: 1,
                           textAlignVertical: TextAlignVertical.top,
-                          style: TextStyle(color: Colors.white70, fontSize: 12),
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 13,
+                            height: 1.5,
+                          ),
                           decoration: InputDecoration(
                             hintText: '输入图片生成提示词...',
-                            hintStyle: TextStyle(color: Colors.white38, fontSize: 11),
+                            hintStyle: TextStyle(color: Colors.white38, fontSize: 12),
                             border: InputBorder.none,
-                            contentPadding: EdgeInsets.all(8),
+                            contentPadding: EdgeInsets.all(12),
                           ),
                           onChanged: (value) {
                             // 实时保存提示词
@@ -8233,7 +10784,7 @@ class _SceneGenerationPanelState extends State<SceneGenerationPanel> {
                           },
                         ),
                       ),
-                      SizedBox(height: 8),
+                      SizedBox(height: 12),
                       // 图片生成按钮
                       SizedBox(
                         width: double.infinity,
@@ -8249,8 +10800,10 @@ class _SceneGenerationPanelState extends State<SceneGenerationPanel> {
                             decoration: BoxDecoration(
                               gradient: isGenerating
                                   ? null
-                                  : LinearGradient(colors: [AnimeColors.blue, AnimeColors.blue.withOpacity(0.7)]),
-                              color: isGenerating ? Colors.grey : null,
+                                  : LinearGradient(
+                                      colors: [AnimeColors.blue, AnimeColors.blue.withOpacity(0.7)],
+                                    ),
+                              color: isGenerating ? Colors.grey.withOpacity(0.3) : null,
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Container(
@@ -8265,7 +10818,14 @@ class _SceneGenerationPanelState extends State<SceneGenerationPanel> {
                                           child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                                         ),
                                         SizedBox(width: 8),
-                                        Text('生成中...', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
+                                        Text(
+                                          '生成中...',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
                                       ],
                                     )
                                   : Row(
@@ -8273,56 +10833,182 @@ class _SceneGenerationPanelState extends State<SceneGenerationPanel> {
                                       children: [
                                         Icon(Icons.image, size: 16, color: Colors.white),
                                         SizedBox(width: 6),
-                                        Text('图片生成', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
+                                        Text(
+                                          '生成图片',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
                                       ],
                                     ),
                             ),
                           ),
                         ),
                       ),
-                      // 生成的图片预览
-                      if (imageUrl != null && imageUrl.isNotEmpty) ...[
-                        SizedBox(height: 8),
-                        ClipRRect(
+                    ],
+                  ),
+                ),
+                SizedBox(width: 16),
+                // 右侧：场景图片框（占据约1/3宽度）
+                Expanded(
+                  flex: 1,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        height: 200,
+                        decoration: BoxDecoration(
+                          color: Colors.grey[800]?.withOpacity(0.3),
                           borderRadius: BorderRadius.circular(8),
-                          child: buildImageWidget(
-                            imageUrl: imageUrl,
-                            width: double.infinity,
-                            height: 120,
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) {
-                              return Container(
-                                width: double.infinity,
-                                height: 120,
-                                color: Colors.grey.withOpacity(0.2),
-                                child: Icon(Icons.broken_image, color: Colors.white38),
-                              );
-                            },
-                            loadingBuilder: (context, child, loadingProgress) {
-                              if (loadingProgress == null) return child;
-                              return Container(
-                                width: double.infinity,
-                                height: 120,
-                                color: Colors.grey.withOpacity(0.2),
-                                child: Center(
-                                  child: CircularProgressIndicator(
-                                    value: loadingProgress.expectedTotalBytes != null
-                                        ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
-                                        : null,
+                          border: Border.all(color: Colors.white.withOpacity(0.1)),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: imageUrl != null && imageUrl.isNotEmpty
+                              ? buildImageWidget(
+                                  imageUrl: imageUrl,
+                                  width: double.infinity,
+                                  height: double.infinity,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) {
+                                    return Container(
+                                      width: double.infinity,
+                                      height: double.infinity,
+                                      color: Colors.grey.withOpacity(0.2),
+                                      child: Column(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          Icon(Icons.broken_image, color: Colors.white38, size: 32),
+                                          SizedBox(height: 8),
+                                          Text(
+                                            '加载失败',
+                                            style: TextStyle(color: Colors.white38, fontSize: 11),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                  loadingBuilder: (context, child, loadingProgress) {
+                                    if (loadingProgress == null) return child;
+                                    return Container(
+                                      width: double.infinity,
+                                      height: double.infinity,
+                                      color: Colors.grey.withOpacity(0.2),
+                                      child: Center(
+                                        child: CircularProgressIndicator(
+                                          value: loadingProgress.expectedTotalBytes != null
+                                              ? loadingProgress.cumulativeBytesLoaded /
+                                                  loadingProgress.expectedTotalBytes!
+                                              : null,
+                                          strokeWidth: 2,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                )
+                              : Center(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(Icons.landscape_outlined, color: Colors.white38, size: 40),
+                                      SizedBox(height: 8),
+                                      Text(
+                                        '暂无图片',
+                                        style: TextStyle(color: Colors.white38, fontSize: 11),
+                                      ),
+                                    ],
                                   ),
                                 ),
-                              );
-                            },
+                        ),
+                      ),
+                      SizedBox(height: 12),
+                      // 根据是否有图片显示不同按钮：未生成显示"选择场景"，生成后显示"上传场景"
+                      if (imageUrl == null || imageUrl.isEmpty) ...[
+                        // 未生成图片时：显示"选择场景"按钮
+                        SizedBox(
+                          width: double.infinity,
+                          height: 32,
+                          child: ElevatedButton(
+                            onPressed: () => _selectSceneFromLibrary(index),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.transparent,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              padding: EdgeInsets.zero,
+                            ),
+                            child: Ink(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(colors: [AnimeColors.purple, AnimeColors.sakura]),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Container(
+                                alignment: Alignment.center,
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.landscape_outlined, size: 14, color: Colors.white),
+                                    SizedBox(width: 6),
+                                    Text(
+                                      '选择场景',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ] else ...[
+                        // 生成图片后：显示"上传场景"按钮
+                        SizedBox(
+                          width: double.infinity,
+                          height: 32,
+                          child: ElevatedButton(
+                            onPressed: () => _uploadSceneToAPI(index),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.transparent,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              padding: EdgeInsets.zero,
+                            ),
+                            child: Ink(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(colors: [AnimeColors.blue, AnimeColors.miku]),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Container(
+                                alignment: Alignment.center,
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.cloud_upload, size: 14, color: Colors.white),
+                                    SizedBox(width: 6),
+                                    Text(
+                                      '上传场景',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
                           ),
                         ),
                       ],
                     ],
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -8357,21 +11043,66 @@ class _SceneGenerationPanelState extends State<SceneGenerationPanel> {
     try {
       final apiService = apiConfigManager.createApiService();
       
-      // 异步调用图片生成API，不阻塞UI
+      // 1. 专业提示词（来自简易设置）
+      final professionalPrompt = _professionalPromptController.text.trim();
+      // 2. 参考风格提示词（来自简易设置）
+      final referencePrompt = _referenceStylePromptController.text.trim();
+      // 3. 场景描述提示词（来自卡片输入框）
+      
+      // 组合顺序：专业提示词 + 参考风格提示词 + 场景描述
+      List<String> promptParts = [];
+      if (professionalPrompt.isNotEmpty) {
+        promptParts.add(professionalPrompt);
+      }
+      if (_referenceStyleImagePath != null && _referenceStyleImagePath!.isNotEmpty && referencePrompt.isNotEmpty) {
+        promptParts.add(referencePrompt);
+      }
+      promptParts.add(imagePrompt);
+      
+      final finalPrompt = promptParts.join(', ');
+      
+      // 准备参考图片列表（如果有）
+      List<String>? referenceImages;
+      if (_referenceStyleImagePath != null && _referenceStyleImagePath!.isNotEmpty) {
+        referenceImages = [_referenceStyleImagePath!];
+      }
+      
+      // 根据比例获取实际像素尺寸
+      final pixels = _aspectRatioToPixels[_selectedAspectRatio] ?? {'width': 1024, 'height': 1024};
+      final width = pixels['width']!;
+      final height = pixels['height']!;
+      
+      logService.info('使用比例生成图片', details: '比例: $_selectedAspectRatio, 尺寸: ${width}x${height}');
+      
+      // 异步调用图片生成API，不阻塞UI，使用简易设置中的分辨率
       final response = await apiService.generateImage(
-        prompt: imagePrompt,
+        prompt: finalPrompt,
         model: apiConfigManager.imageModel,
-        width: 1024,
-        height: 1024,
+        width: width,
+        height: height,
         quality: 'standard',
+        referenceImages: referenceImages, // 传入参考图片
       );
 
       if (mounted) {
+        // 先更新UI显示图片
         setState(() {
           scene['imageUrl'] = response.imageUrl;
           _generatingImages[index] = false;
-          // 更新workspaceState
           workspaceState.updateScene(index, scene);
+        });
+        
+        // 异步下载并保存图片到本地（不阻塞UI）
+        _downloadAndSaveSceneImage(response.imageUrl, index).then((localPath) {
+          if (localPath != null && mounted) {
+            setState(() {
+              scene['localImagePath'] = localPath;
+              workspaceState.updateScene(index, scene);
+            });
+            logService.info('场景图片已保存到本地', details: localPath);
+          }
+        }).catchError((e) {
+          logService.error('保存场景图片到本地失败', details: e.toString());
         });
         
         ScaffoldMessenger.of(context).showSnackBar(
@@ -8390,6 +11121,137 @@ class _SceneGenerationPanelState extends State<SceneGenerationPanel> {
       }
     }
   }
+  
+  // 下载并保存场景图片到本地
+  Future<String?> _downloadAndSaveSceneImage(String imageUrl, int index) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final autoSave = prefs.getBool('auto_save_images') ?? false;
+      final savePath = prefs.getString('image_save_path') ?? '';
+      
+      // 获取场景名称
+      final scene = _scenes[index];
+      final sceneName = (scene['name'] as String?)?.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_') ?? 'scene';
+      
+      // 确定保存目录
+      Directory dir;
+      if (autoSave && savePath.isNotEmpty) {
+        dir = Directory(savePath);
+        if (!await dir.exists()) {
+          await dir.create(recursive: true);
+        }
+      } else {
+        final tempDir = await getTemporaryDirectory();
+        dir = Directory('${tempDir.path}/xinghe_scenes');
+        if (!await dir.exists()) {
+          await dir.create(recursive: true);
+        }
+      }
+      
+      // 下载图片
+      Uint8List imageBytes;
+      String fileExtension = 'png';
+      
+      if (imageUrl.startsWith('data:image/')) {
+        final base64Index = imageUrl.indexOf('base64,');
+        if (base64Index == -1) {
+          throw Exception('无效的Base64数据URI');
+        }
+        final base64Data = imageUrl.substring(base64Index + 7);
+        imageBytes = base64Decode(base64Data);
+        
+        final mimeMatch = RegExp(r'data:image/([^;]+)').firstMatch(imageUrl);
+        if (mimeMatch != null) {
+          final mimeType = mimeMatch.group(1) ?? 'png';
+          if (mimeType.contains('jpeg') || mimeType.contains('jpg')) {
+            fileExtension = 'jpg';
+          } else if (mimeType.contains('webp')) {
+            fileExtension = 'webp';
+          }
+        }
+      } else if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+        final response = await http.get(Uri.parse(imageUrl));
+        if (response.statusCode != 200) {
+          throw Exception('下载图片失败: HTTP ${response.statusCode}');
+        }
+        imageBytes = response.bodyBytes;
+        
+        final contentType = response.headers['content-type'];
+        if (contentType != null) {
+          if (contentType.contains('jpeg') || contentType.contains('jpg')) {
+            fileExtension = 'jpg';
+          } else if (contentType.contains('webp')) {
+            fileExtension = 'webp';
+          }
+        }
+      } else {
+        throw Exception('不支持的图片URL格式');
+      }
+      
+      // 保存文件
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final fileName = 'scene_${sceneName}_$timestamp.$fileExtension';
+      final filePath = '${dir.path}${Platform.pathSeparator}$fileName';
+      final file = File(filePath);
+      await file.writeAsBytes(imageBytes);
+      
+      print('✅ 场景图片已保存: $filePath');
+      return filePath;
+    } catch (e, stackTrace) {
+      print('❌ 保存场景图片失败: $e');
+      print('📍 堆栈跟踪: $stackTrace');
+      return null;
+    }
+  }
+  
+  // 从素材库选择场景
+  void _selectSceneFromLibrary(int index) {
+    logService.action('打开场景素材库选择器');
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => _SceneMaterialPickerDialog(
+        onMaterialSelected: (material) {
+          if (!mounted) return;
+          setState(() {
+            final scene = _scenes[index];
+            scene['localImagePath'] = material['path'];
+            scene['imageUrl'] = material['path'];
+            workspaceState.updateScene(index, scene);
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('已选择场景: ${material['name']}'),
+              backgroundColor: AnimeColors.blue,
+              duration: Duration(seconds: 2),
+            ),
+          );
+          logService.action('从素材库选择场景', details: '名称: ${material['name']}, 路径: ${material['path']}');
+        },
+      ),
+    );
+  }
+  
+  // 上传场景到API
+  Future<void> _uploadSceneToAPI(int index) async {
+    if (index >= _scenes.length) return;
+    
+    final scene = _scenes[index];
+    final sceneName = scene['name'] as String? ?? '未命名场景';
+    
+    // TODO: 实现场景上传逻辑
+    // 类似角色上传，但针对场景
+    
+    logService.action('上传场景功能开发中', details: '场景名称: $sceneName');
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('场景上传功能开发中'),
+        backgroundColor: Colors.orange,
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
 }
 
 // 物品生成面板
@@ -8405,28 +11267,390 @@ class _PropGenerationPanelState extends State<PropGenerationPanel> {
   List<Map<String, dynamic>> _props = [];
   String? _selectedTemplate; // 选中的提示词模板名称
   Map<String, String> _promptTemplates = {}; // 物品提示词模板列表
+  
   // 为每个物品的图片提示词缓存TextEditingController
   final Map<int, TextEditingController> _imagePromptControllers = {};
   // 记录每个物品是否正在生成图片
   final Map<int, bool> _generatingImages = {};
 
+  // 参考风格相关
+  final ImagePicker _imagePicker = ImagePicker();
+  String? _referenceStyleImagePath; // 参考风格图片路径
+  final TextEditingController _referenceStylePromptController = TextEditingController(text: '参考图片风格，');
+
+  // === 简易设置相关 ===
+  // 图片分辨率设置（使用比例而不是具体像素）
+  String _selectedAspectRatio = '1:1'; // 默认比例
+  final Map<String, Map<String, int>> _aspectRatioToPixels = {
+    '1:1': {'width': 1024, 'height': 1024},
+    '9:16': {'width': 768, 'height': 1344},
+    '16:9': {'width': 1344, 'height': 768},
+    '3:4': {'width': 912, 'height': 1216},
+    '4:3': {'width': 1216, 'height': 912},
+  };
+
+  // 风格提示词模板
+  String? _selectedStyleTemplateId; // 选中的风格模板ID
+  List<PromptTemplate> _styleTemplates = []; // 风格模板列表
+  final TextEditingController _stylePromptController = TextEditingController();
+
+  // 专业提示词模板
+  String? _selectedProfessionalTemplateId; // 选中的专业模板ID
+  List<PromptTemplate> _professionalTemplates = []; // 专业模板列表
+  final TextEditingController _professionalPromptController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
-    _props = workspaceState.props;
+    // 同步物品列表（从持久化存储加载的物品）
+    _props = List<Map<String, dynamic>>.from(workspaceState.props);
     _loadPromptTemplates();
     _loadSelectedTemplate();
     _initializeControllers();
+    _loadReferenceStyle(); // 加载保存的参考风格设置
+    _loadEasySettings(); // 加载简易设置
+    _loadEasySettingsTemplates(); // 加载简易设置的模板
+    
+    // 监听 PromptStore 变化
+    promptStore.addListener(_onPromptStoreChanged);
+    // 监听 WorkspaceState 变化
+    workspaceState.addListener(_onWorkspaceStateChanged);
+    // 监听提示词的变化，实现自动保存
+    _stylePromptController.addListener(_saveEasySettings);
+    _professionalPromptController.addListener(_saveEasySettings);
+  }
+  
+  /// 当 PromptStore 发生变化时重新加载模板
+  void _onPromptStoreChanged() {
+    _loadEasySettingsTemplates();
+  }
+  
+  /// 当 WorkspaceState 发生变化时更新状态
+  void _onWorkspaceStateChanged() {
+    if (mounted) {
+      setState(() {
+        // 同步物品列表
+        _props = workspaceState.props;
+        // 重新初始化控制器
+        _initializeControllers();
+      });
+    }
   }
 
   @override
   void dispose() {
+    // 移除 PromptStore 监听器
+    promptStore.removeListener(_onPromptStoreChanged);
+    // 移除 WorkspaceState 监听器
+    workspaceState.removeListener(_onWorkspaceStateChanged);
+    
     // 清理所有Controller
     for (var controller in _imagePromptControllers.values) {
       controller.dispose();
     }
     _imagePromptControllers.clear();
+    
+    // 清理参考风格相关
+    _referenceStylePromptController.dispose();
+    _stylePromptController.removeListener(_saveEasySettings);
+    _stylePromptController.dispose();
+    _professionalPromptController.removeListener(_saveEasySettings);
+    _professionalPromptController.dispose();
+    
     super.dispose();
+  }
+
+  // 加载参考风格设置
+  Future<void> _loadReferenceStyle() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedImagePath = prefs.getString('prop_reference_style_image');
+      final savedPrompt = prefs.getString('prop_reference_style_prompt');
+      String? resolvedImagePath;
+      if (savedImagePath != null && savedImagePath.isNotEmpty) {
+        final file = File(savedImagePath);
+        if (await file.exists()) {
+          resolvedImagePath = savedImagePath;
+        }
+      }
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _referenceStyleImagePath = resolvedImagePath;
+        if (savedPrompt != null && savedPrompt.isNotEmpty) {
+          _referenceStylePromptController.text = savedPrompt;
+        }
+      });
+    } catch (e) {
+      logService.error('加载物品参考风格设置失败', details: e.toString());
+    }
+  }
+
+  // 保存参考风格设置
+  Future<void> _saveReferenceStyle() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (_referenceStyleImagePath != null && _referenceStyleImagePath!.isNotEmpty) {
+        await prefs.setString('prop_reference_style_image', _referenceStyleImagePath!);
+      } else {
+        await prefs.remove('prop_reference_style_image');
+      }
+      await prefs.setString('prop_reference_style_prompt', _referenceStylePromptController.text);
+    } catch (e) {
+      logService.error('保存物品参考风格设置失败', details: e.toString());
+    }
+  }
+
+  // 加载提示词模板
+  Future<void> _loadPromptTemplates() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final promptsJson = prefs.getString('prompts');
+      if (promptsJson != null) {
+        final decoded = await compute(_decodePropPromptTemplates, promptsJson);
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _promptTemplates = decoded;
+        });
+      }
+    } catch (e) {
+      logService.error('加载物品提示词模板失败', details: e.toString());
+    }
+  }
+
+  // 加载保存的模板选择
+  Future<void> _loadSelectedTemplate() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedTemplate = prefs.getString('prop_selected_template');
+      if (savedTemplate != null && savedTemplate.isNotEmpty) {
+        setState(() {
+          _selectedTemplate = savedTemplate;
+        });
+      }
+    } catch (e) {
+      logService.error('加载保存的物品模板选择失败', details: e.toString());
+    }
+  }
+
+  // 保存模板选择
+  Future<void> _saveSelectedTemplate() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (_selectedTemplate != null && _selectedTemplate!.isNotEmpty) {
+        await prefs.setString('prop_selected_template', _selectedTemplate!);
+      } else {
+        await prefs.remove('prop_selected_template');
+      }
+    } catch (e) {
+      logService.error('保存物品模板选择失败', details: e.toString());
+    }
+  }
+
+  // === 简易设置相关方法 ===
+
+  // 加载简易设置模板
+  Future<void> _loadEasySettingsTemplates() async {
+    try {
+      setState(() {
+        // 加载风格提示词模板（使用 image 类别）
+        _styleTemplates = promptStore.getTemplates(PromptCategory.image);
+        // 加载专业提示词模板（使用 llm 类别）
+        _professionalTemplates = promptStore.getTemplates(PromptCategory.llm);
+      });
+      logService.info('加载物品简易设置模板', details: '风格模板: ${_styleTemplates.length}, 专业模板: ${_professionalTemplates.length}');
+    } catch (e) {
+      logService.error('加载物品简易设置模板失败', details: e.toString());
+    }
+  }
+
+  // 加载简易设置
+  Future<void> _loadEasySettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (mounted) {
+        setState(() {
+          // 加载比例设置
+          _selectedAspectRatio = prefs.getString('prop_easy_aspect_ratio') ?? '1:1';
+
+          // 加载风格提示词模板ID和内容
+          _selectedStyleTemplateId = prefs.getString('prop_easy_style_template_id');
+          final savedStylePrompt = prefs.getString('prop_easy_style_prompt');
+          if (savedStylePrompt != null) {
+            _stylePromptController.text = savedStylePrompt;
+          }
+
+          // 加载专业提示词模板ID和内容
+          _selectedProfessionalTemplateId = prefs.getString('prop_easy_professional_template_id');
+          final savedProfessionalPrompt = prefs.getString('prop_easy_professional_prompt');
+          if (savedProfessionalPrompt != null) {
+            _professionalPromptController.text = savedProfessionalPrompt;
+          }
+        });
+      }
+      logService.info('加载物品简易设置', details: '比例: $_selectedAspectRatio');
+    } catch (e) {
+      logService.error('加载物品简易设置失败', details: e.toString());
+    }
+  }
+
+  // 保存简易设置（自动触发）
+  Future<void> _saveEasySettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('prop_easy_aspect_ratio', _selectedAspectRatio);
+      await prefs.setString('prop_easy_style_prompt', _stylePromptController.text);
+      await prefs.setString('prop_easy_professional_prompt', _professionalPromptController.text);
+
+      // 保存模板ID
+      if (_selectedStyleTemplateId != null) {
+        await prefs.setString('prop_easy_style_template_id', _selectedStyleTemplateId!);
+      } else {
+        await prefs.remove('prop_easy_style_template_id');
+      }
+      if (_selectedProfessionalTemplateId != null) {
+        await prefs.setString('prop_easy_professional_template_id', _selectedProfessionalTemplateId!);
+      } else {
+        await prefs.remove('prop_easy_professional_template_id');
+      }
+    } catch (e) {
+      logService.error('保存物品简易设置失败', details: e.toString());
+    }
+  }
+
+  // 显示简易设置对话框
+  void _showEasySettingsDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => _EasySettingsDialog(
+        initialAspectRatio: _selectedAspectRatio,
+        aspectRatioOptions: _aspectRatioToPixels.keys.toList(),
+        styleTemplates: _styleTemplates,
+        initialStyleTemplateId: _selectedStyleTemplateId,
+        stylePromptController: _stylePromptController,
+        professionalTemplates: _professionalTemplates,
+        initialProfessionalTemplateId: _selectedProfessionalTemplateId,
+        professionalPromptController: _professionalPromptController,
+        referenceStyleImagePath: _referenceStyleImagePath,
+        referenceStylePromptController: _referenceStylePromptController,
+        onAspectRatioChanged: (newRatio) {
+          setState(() {
+            _selectedAspectRatio = newRatio;
+          });
+          _saveEasySettings();
+        },
+        onStyleTemplateChanged: (templateId) {
+          setState(() {
+            _selectedStyleTemplateId = templateId;
+            if (templateId != null) {
+              final template = _styleTemplates.firstWhere((t) => t.id == templateId);
+              _stylePromptController.text = template.content;
+            }
+          });
+          _saveEasySettings();
+        },
+        onProfessionalTemplateChanged: (templateId) {
+          Future.microtask(() {
+            setState(() {
+              _selectedProfessionalTemplateId = templateId;
+              if (templateId != null) {
+                final template = _professionalTemplates.firstWhere((t) => t.id == templateId);
+                _professionalPromptController.text = template.content;
+              }
+            });
+            _saveEasySettings();
+          });
+        },
+        onPickReferenceImage: () async {
+          Navigator.pop(context);
+          await _pickReferenceStyleImage();
+          _showEasySettingsDialog();
+        },
+        onClearReferenceImage: () {
+          setState(() {
+            _referenceStyleImagePath = null;
+          });
+          Future.microtask(() => _saveReferenceStyle());
+        },
+      ),
+    );
+  }
+
+  // 显示模板选择对话框
+  void _showTemplateSelector() {
+    showDialog(
+      context: context,
+      builder: (context) => _PromptTemplateManagerDialog(
+        category: 'prop',
+        selectedTemplate: _selectedTemplate,
+        accentColor: AnimeColors.orangeAccent,
+        onSelect: (template) {
+          setState(() {
+            _selectedTemplate = template;
+          });
+          if (template != null) {
+            _saveSelectedTemplate();
+          }
+        },
+        onSave: () {
+          _loadPromptTemplates();
+        },
+      ),
+    );
+  }
+
+  // 上传参考风格图片
+  Future<void> _pickReferenceStyleImage() async {
+    try {
+      final XFile? pickedFile = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 90,
+      );
+
+      if (pickedFile != null) {
+        setState(() {
+          _referenceStyleImagePath = pickedFile.path;
+        });
+        await _saveReferenceStyle();
+        logService.action('上传物品参考风格图片', details: pickedFile.path);
+      }
+    } catch (e) {
+      logService.error('上传物品参考风格图片失败', details: e.toString());
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('上传图片失败: $e'),
+            backgroundColor: AnimeColors.sakura,
+          ),
+        );
+      }
+    }
+  }
+
+  // 清空参考风格图片
+  Future<void> _clearReferenceStyleImage() async {
+    try {
+      setState(() {
+        _referenceStyleImagePath = null;
+      });
+      await _saveReferenceStyle();
+      logService.action('清空物品参考风格图片');
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('已清空参考风格图片'),
+            backgroundColor: AnimeColors.orangeAccent,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      logService.error('清空物品参考风格图片失败', details: e.toString());
+    }
   }
 
   // 初始化Controller
@@ -8454,83 +11678,65 @@ class _PropGenerationPanelState extends State<PropGenerationPanel> {
     return _imagePromptControllers[index]!;
   }
 
-  // 加载提示词模板
-  Future<void> _loadPromptTemplates() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final promptsJson = prefs.getString('prompts');
-      if (promptsJson != null) {
-        final decoded = jsonDecode(promptsJson) as Map<String, dynamic>;
-        setState(() {
-          _promptTemplates = Map<String, String>.from(decoded['prop'] ?? {});
-        });
-      }
-    } catch (e) {
-      logService.error('加载提示词模板失败', details: e.toString());
-    }
-  }
-
-  // 加载保存的模板选择
-  Future<void> _loadSelectedTemplate() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final savedTemplate = prefs.getString('prop_selected_template');
-      if (savedTemplate != null && savedTemplate.isNotEmpty) {
-        setState(() {
-          _selectedTemplate = savedTemplate;
-        });
-      }
-    } catch (e) {
-      logService.error('加载保存的模板选择失败', details: e.toString());
-    }
-  }
-
-  // 保存模板选择
-  Future<void> _saveSelectedTemplate() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      if (_selectedTemplate != null) {
-        await prefs.setString('prop_selected_template', _selectedTemplate!);
-      } else {
-        await prefs.remove('prop_selected_template');
-      }
-      logService.info('保存模板选择', details: _selectedTemplate ?? '不使用模板');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('模板选择已保存'),
-            backgroundColor: AnimeColors.orangeAccent,
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
-    } catch (e) {
-      logService.error('保存模板选择失败', details: e.toString());
-    }
-  }
-
-
-  // 显示模板选择对话框
-  void _showTemplateSelector() {
+  // 显示删除所有内容的确认对话框
+  void _showClearAllDialog() {
     showDialog(
       context: context,
-      builder: (context) => _PromptTemplateManagerDialog(
-        category: 'prop',
-        selectedTemplate: _selectedTemplate,
-        accentColor: AnimeColors.orangeAccent,
-        onSelect: (template) {
-          setState(() {
-            _selectedTemplate = template;
-          });
-          if (template != null) {
-            _saveSelectedTemplate();
-          }
-        },
-        onSave: () {
-          _loadPromptTemplates();
-        },
+      builder: (context) => AlertDialog(
+        backgroundColor: AnimeColors.cardBg,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 24),
+            SizedBox(width: 12),
+            Text('确认删除', style: TextStyle(color: Colors.white)),
+          ],
+        ),
+        content: Text(
+          '确定要删除所有物品吗？\n此操作不可恢复！',
+          style: TextStyle(color: Colors.white70, fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('取消', style: TextStyle(color: Colors.white70)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _clearAllProps();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red.withOpacity(0.8),
+            ),
+            child: Text('确认删除', style: TextStyle(color: Colors.white)),
+          ),
+        ],
       ),
     );
+  }
+  
+  // 删除所有物品
+  void _clearAllProps() {
+    setState(() {
+      _props.clear();
+      workspaceState.clearProps();
+      _imagePromptControllers.values.forEach((controller) => controller.dispose());
+      _imagePromptControllers.clear();
+      _generatingImages.clear();
+    });
+    
+    logService.info('已清空所有物品');
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('已删除所有物品'),
+          backgroundColor: AnimeColors.orangeAccent,
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
   Future<void> _generateProps() async {
@@ -8583,15 +11789,42 @@ class _PropGenerationPanelState extends State<PropGenerationPanel> {
       );
 
       final content = response.choices.first.message.content;
+      logService.info('物品生成API返回内容', details: content.substring(0, content.length > 500 ? 500 : content.length));
+      
       try {
-        final List<dynamic> parsed = jsonDecode(content);
+        // 清理可能的markdown代码块包裹
+        String cleanedContent = content.trim();
+        if (cleanedContent.startsWith('```json')) {
+          cleanedContent = cleanedContent.substring(7);
+        } else if (cleanedContent.startsWith('```')) {
+          cleanedContent = cleanedContent.substring(3);
+        }
+        if (cleanedContent.endsWith('```')) {
+          cleanedContent = cleanedContent.substring(0, cleanedContent.length - 3);
+        }
+        cleanedContent = cleanedContent.trim();
+        
+        final List<dynamic> parsed = jsonDecode(cleanedContent);
         workspaceState.clearProps();
         for (var prop in parsed) {
           final propMap = Map<String, dynamic>.from(prop);
-          // 确保每个物品都有imagePrompt和imageUrl字段
-          if (!propMap.containsKey('imagePrompt')) {
-            propMap['imagePrompt'] = '';
+          
+          // 构建图片提示词（从物品描述信息中提取）
+          final List<String> promptParts = [];
+          if (propMap['name'] != null && propMap['name'].toString().isNotEmpty) {
+            promptParts.add(propMap['name'].toString());
           }
+          if (propMap['description'] != null && propMap['description'].toString().isNotEmpty) {
+            promptParts.add(propMap['description'].toString());
+          }
+          if (propMap['significance'] != null && propMap['significance'].toString().isNotEmpty) {
+            promptParts.add(propMap['significance'].toString());
+          }
+          
+          // 将组合的提示词放入 imagePrompt
+          propMap['imagePrompt'] = promptParts.join(', ');
+          
+          // 确保每个物品都有imageUrl字段
           if (!propMap.containsKey('imageUrl')) {
             propMap['imageUrl'] = null;
           }
@@ -8606,7 +11839,10 @@ class _PropGenerationPanelState extends State<PropGenerationPanel> {
           SnackBar(content: Text('成功生成${_props.length}个物品!'), backgroundColor: AnimeColors.miku),
         );
       } catch (e) {
-        logService.warn('物品JSON解析失败');
+        logService.warn('物品JSON解析失败', details: '错误: $e\n原始内容前200字符: ${content.substring(0, content.length > 200 ? 200 : content.length)}');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('物品解析失败，请检查提示词模板'), backgroundColor: AnimeColors.sakura),
+        );
       }
     } catch (e) {
       logService.error('物品生成失败', details: e.toString());
@@ -8618,10 +11854,21 @@ class _PropGenerationPanelState extends State<PropGenerationPanel> {
     }
   }
 
+  // 显示"请先生成剧本"提示弹窗（渐隐效果）
+  void _showNoScriptToast() {
+    showDialog(
+      context: context,
+      barrierColor: Colors.transparent,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return _NoScriptToastWidget();
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final hasScript = workspaceState.script.isNotEmpty;
-
+    final hasScript = workspaceState.script.isNotEmpty && workspaceState.script.trim().isNotEmpty;
     return Padding(
       padding: EdgeInsets.all(28),
       child: Column(
@@ -8632,6 +11879,47 @@ class _PropGenerationPanelState extends State<PropGenerationPanel> {
               Icon(Icons.inventory_2_outlined, color: AnimeColors.miku, size: 28),
               SizedBox(width: 12),
               Text('物品生成', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: Colors.white)),
+              SizedBox(width: 12),
+              // 简易设置按钮
+              InkWell(
+                onTap: _showEasySettingsDialog,
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  padding: EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        AnimeColors.miku.withOpacity(0.2),
+                        AnimeColors.purple.withOpacity(0.2),
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: AnimeColors.miku.withOpacity(0.3),
+                      width: 1.5,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.tune_rounded,
+                        size: 18,
+                        color: AnimeColors.miku,
+                      ),
+                      SizedBox(width: 6),
+                      Text(
+                        '设置',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: AnimeColors.miku,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
               Spacer(),
               // 提示词模板选择按钮
               TextButton.icon(
@@ -8655,17 +11943,14 @@ class _PropGenerationPanelState extends State<PropGenerationPanel> {
                 ),
               ),
               SizedBox(width: 8),
-              // 保存按钮
-              if (_selectedTemplate != null)
-                IconButton(
-                  icon: Icon(Icons.save, size: 18, color: AnimeColors.orangeAccent),
-                  tooltip: '保存模板选择',
-                  onPressed: () {
-                    _saveSelectedTemplate();
-                  },
-                  padding: EdgeInsets.zero,
-                  constraints: BoxConstraints(),
-                ),
+              // 删除所有内容按钮
+              IconButton(
+                icon: Icon(Icons.delete_sweep, size: 20, color: Colors.red.withOpacity(0.8)),
+                tooltip: '删除所有物品',
+                onPressed: () => _showClearAllDialog(),
+                padding: EdgeInsets.zero,
+                constraints: BoxConstraints(),
+              ),
               if (!hasScript)
                 Container(
                   padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -8682,17 +11967,32 @@ class _PropGenerationPanelState extends State<PropGenerationPanel> {
                   ),
                 ),
               SizedBox(width: 16),
-              ElevatedButton.icon(
-                onPressed: _isLoading || !hasScript ? null : _generateProps,
-                icon: _isLoading 
-                    ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : Icon(Icons.auto_awesome, size: 18),
-                label: Text(_isLoading ? '生成中...' : '根据剧本生成'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AnimeColors.miku,
-                  foregroundColor: Colors.white,
-                  padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                ),
+              // 使用 Stack 来覆盖按钮，实现灰色状态下的点击提示
+              Stack(
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: (_isLoading || !hasScript) ? null : _generateProps,
+                    icon: _isLoading 
+                        ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        : Icon(Icons.auto_awesome, size: 18),
+                    label: Text(_isLoading ? '生成中...' : '根据剧本生成'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: hasScript ? AnimeColors.orangeAccent : Colors.grey,
+                      foregroundColor: Colors.white,
+                      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    ),
+                  ),
+                  if (!hasScript)
+                    Positioned.fill(
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: _showNoScriptToast,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ],
           ),
@@ -8710,13 +12010,7 @@ class _PropGenerationPanelState extends State<PropGenerationPanel> {
                       ],
                     ),
                   )
-                : GridView.builder(
-                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 4,
-                      crossAxisSpacing: 16,
-                      mainAxisSpacing: 16,
-                      childAspectRatio: 1.1,
-                    ),
+                : ListView.builder(
                     itemCount: _props.length,
                     itemBuilder: (context, index) => _buildPropCard(_props[index]),
                   ),
@@ -8731,57 +12025,110 @@ class _PropGenerationPanelState extends State<PropGenerationPanel> {
     final imagePromptController = _getImagePromptController(index);
     final isGenerating = _generatingImages[index] ?? false;
     final imageUrl = prop['imageUrl'] as String?;
+    final propName = prop['name'] ?? '未命名物品';
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-        child: Container(
-          padding: EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: AnimeColors.glassBg,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AnimeColors.miku.withOpacity(0.3)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: AnimeColors.miku.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Icon(Icons.inventory_2, color: AnimeColors.miku, size: 18),
-                  ),
-                  SizedBox(width: 10),
-                  Expanded(
-                    child: Text(prop['name'] ?? '未命名', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
-                  ),
-                ],
+    return Container(
+      margin: EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: Colors.grey[850]?.withOpacity(0.6),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withOpacity(0.1), width: 1),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 顶部：物品名称、按钮
+          Container(
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(color: Colors.white.withOpacity(0.1), width: 1),
               ),
-              SizedBox(height: 8),
-              // 物品信息
-              Expanded(
-                child: SingleChildScrollView(
+            ),
+            child: Row(
+              children: [
+                // 物品名称（Miku绿色）
+                Text(
+                  propName,
+                  style: TextStyle(
+                    color: AnimeColors.miku,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 16,
+                  ),
+                ),
+                Spacer(),
+                // "默认"按钮
+                TextButton(
+                  onPressed: () {},
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    minimumSize: Size(0, 0),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    backgroundColor: Colors.grey[700]?.withOpacity(0.3),
+                  ),
+                  child: Text(
+                    '默认',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
+                SizedBox(width: 8),
+                // "详情"按钮
+                TextButton(
+                  onPressed: () {},
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    minimumSize: Size(0, 0),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: Text(
+                    '详情',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
+                SizedBox(width: 8),
+                // 删除按钮
+                IconButton(
+                  icon: Icon(Icons.delete_outline, color: Colors.white54, size: 18),
+                  tooltip: '删除物品',
+                  onPressed: () {
+                    setState(() {
+                      _props.removeAt(index);
+                      workspaceState.removeProp(index);
+                      _imagePromptControllers[index]?.dispose();
+                      _imagePromptControllers.remove(index);
+                      _generatingImages.remove(index);
+                    });
+                  },
+                  padding: EdgeInsets.all(4),
+                  constraints: BoxConstraints(),
+                ),
+              ],
+            ),
+          ),
+          // 主体：左右布局
+          Padding(
+            padding: EdgeInsets.all(16),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 左侧：提示词输入框（占据约2/3宽度）
+                Expanded(
+                  flex: 2,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      if (prop['description'] != null) ...[
-                        Text(prop['description'], style: TextStyle(color: Colors.white70, fontSize: 11), maxLines: 2, overflow: TextOverflow.ellipsis),
-                        SizedBox(height: 8),
-                      ],
-                      // 图片提示词输入框
-                      Text('图片提示词', style: TextStyle(color: AnimeColors.miku, fontSize: 10, fontWeight: FontWeight.w600)),
-                      SizedBox(height: 4),
                       Container(
-                        height: 60,
+                        height: 200, // 固定高度，可滚动
                         decoration: BoxDecoration(
-                          color: AnimeColors.cardBg,
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: Colors.white10),
+                          color: Colors.grey[800]?.withOpacity(0.3),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.white.withOpacity(0.1)),
                         ),
                         child: TextField(
                           controller: imagePromptController,
@@ -8789,14 +12136,18 @@ class _PropGenerationPanelState extends State<PropGenerationPanel> {
                           readOnly: false,
                           enableInteractiveSelection: true,
                           maxLines: null,
-                          minLines: 2,
+                          minLines: 1,
                           textAlignVertical: TextAlignVertical.top,
-                          style: TextStyle(color: Colors.white70, fontSize: 11),
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 13,
+                            height: 1.5,
+                          ),
                           decoration: InputDecoration(
-                            hintText: '输入提示词...',
-                            hintStyle: TextStyle(color: Colors.white38, fontSize: 10),
+                            hintText: '输入图片生成提示词...',
+                            hintStyle: TextStyle(color: Colors.white38, fontSize: 12),
                             border: InputBorder.none,
-                            contentPadding: EdgeInsets.all(6),
+                            contentPadding: EdgeInsets.all(12),
                           ),
                           onChanged: (value) {
                             // 实时保存提示词
@@ -8805,25 +12156,27 @@ class _PropGenerationPanelState extends State<PropGenerationPanel> {
                           },
                         ),
                       ),
-                      SizedBox(height: 6),
+                      SizedBox(height: 12),
                       // 图片生成按钮
                       SizedBox(
                         width: double.infinity,
-                        height: 32,
+                        height: 36,
                         child: ElevatedButton(
                           onPressed: isGenerating ? null : () => _generatePropImage(index),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.transparent,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                             padding: EdgeInsets.zero,
                           ),
                           child: Ink(
                             decoration: BoxDecoration(
                               gradient: isGenerating
                                   ? null
-                                  : LinearGradient(colors: [AnimeColors.miku, AnimeColors.miku.withOpacity(0.7)]),
-                              color: isGenerating ? Colors.grey : null,
-                              borderRadius: BorderRadius.circular(6),
+                                  : LinearGradient(
+                                      colors: [AnimeColors.miku, AnimeColors.miku.withOpacity(0.7)],
+                                    ),
+                              color: isGenerating ? Colors.grey.withOpacity(0.3) : null,
+                              borderRadius: BorderRadius.circular(8),
                             ),
                             child: Container(
                               alignment: Alignment.center,
@@ -8832,69 +12185,202 @@ class _PropGenerationPanelState extends State<PropGenerationPanel> {
                                       mainAxisAlignment: MainAxisAlignment.center,
                                       children: [
                                         SizedBox(
-                                          width: 14,
-                                          height: 14,
+                                          width: 16,
+                                          height: 16,
                                           child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                                         ),
-                                        SizedBox(width: 6),
-                                        Text('生成中...', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w600)),
+                                        SizedBox(width: 8),
+                                        Text(
+                                          '生成中...',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
                                       ],
                                     )
                                   : Row(
                                       mainAxisAlignment: MainAxisAlignment.center,
                                       children: [
-                                        Icon(Icons.image, size: 14, color: Colors.white),
-                                        SizedBox(width: 4),
-                                        Text('图片生成', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w600)),
+                                        Icon(Icons.image, size: 16, color: Colors.white),
+                                        SizedBox(width: 6),
+                                        Text(
+                                          '生成图片',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
                                       ],
                                     ),
                             ),
                           ),
                         ),
                       ),
-                      // 生成的图片预览
-                      if (imageUrl != null && imageUrl.isNotEmpty) ...[
-                        SizedBox(height: 6),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(6),
-                          child: buildImageWidget(
-                            imageUrl: imageUrl,
-                            width: double.infinity,
-                            height: 100,
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) {
-                              return Container(
-                                width: double.infinity,
-                                height: 100,
-                                color: Colors.grey.withOpacity(0.2),
-                                child: Icon(Icons.broken_image, color: Colors.white38, size: 20),
-                              );
-                            },
-                            loadingBuilder: (context, child, loadingProgress) {
-                              if (loadingProgress == null) return child;
-                              return Container(
-                                width: double.infinity,
-                                height: 100,
-                                color: Colors.grey.withOpacity(0.2),
-                                child: Center(
-                                  child: CircularProgressIndicator(
-                                    value: loadingProgress.expectedTotalBytes != null
-                                        ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
-                                        : null,
+                    ],
+                  ),
+                ),
+                SizedBox(width: 16),
+                // 右侧：物品图片框（占据约1/3宽度）
+                Expanded(
+                  flex: 1,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        height: 200,
+                        decoration: BoxDecoration(
+                          color: Colors.grey[800]?.withOpacity(0.3),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.white.withOpacity(0.1)),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: imageUrl != null && imageUrl.isNotEmpty
+                              ? buildImageWidget(
+                                  imageUrl: imageUrl,
+                                  width: double.infinity,
+                                  height: double.infinity,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) {
+                                    return Container(
+                                      width: double.infinity,
+                                      height: double.infinity,
+                                      color: Colors.grey.withOpacity(0.2),
+                                      child: Column(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          Icon(Icons.broken_image, color: Colors.white38, size: 32),
+                                          SizedBox(height: 8),
+                                          Text(
+                                            '加载失败',
+                                            style: TextStyle(color: Colors.white38, fontSize: 11),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                  loadingBuilder: (context, child, loadingProgress) {
+                                    if (loadingProgress == null) return child;
+                                    return Container(
+                                      width: double.infinity,
+                                      height: double.infinity,
+                                      color: Colors.grey.withOpacity(0.2),
+                                      child: Center(
+                                        child: CircularProgressIndicator(
+                                          value: loadingProgress.expectedTotalBytes != null
+                                              ? loadingProgress.cumulativeBytesLoaded /
+                                                  loadingProgress.expectedTotalBytes!
+                                              : null,
+                                          strokeWidth: 2,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                )
+                              : Center(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(Icons.inventory_2_outlined, color: Colors.white38, size: 40),
+                                      SizedBox(height: 8),
+                                      Text(
+                                        '暂无图片',
+                                        style: TextStyle(color: Colors.white38, fontSize: 11),
+                                      ),
+                                    ],
                                   ),
                                 ),
-                              );
-                            },
+                        ),
+                      ),
+                      SizedBox(height: 12),
+                      // 根据是否有图片显示不同按钮：未生成显示"选择物品"，生成后显示"上传物品"
+                      if (imageUrl == null || imageUrl.isEmpty) ...[
+                        // 未生成图片时：显示"选择物品"按钮
+                        SizedBox(
+                          width: double.infinity,
+                          height: 32,
+                          child: ElevatedButton(
+                            onPressed: () => _selectPropFromLibrary(index),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.transparent,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              padding: EdgeInsets.zero,
+                            ),
+                            child: Ink(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(colors: [AnimeColors.purple, AnimeColors.sakura]),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Container(
+                                alignment: Alignment.center,
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.inventory_2_outlined, size: 14, color: Colors.white),
+                                    SizedBox(width: 6),
+                                    Text(
+                                      '选择物品',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ] else ...[
+                        // 生成图片后：显示"上传物品"按钮
+                        SizedBox(
+                          width: double.infinity,
+                          height: 32,
+                          child: ElevatedButton(
+                            onPressed: () => _uploadPropToAPI(index),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.transparent,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              padding: EdgeInsets.zero,
+                            ),
+                            child: Ink(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(colors: [AnimeColors.blue, AnimeColors.miku]),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Container(
+                                alignment: Alignment.center,
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.cloud_upload, size: 14, color: Colors.white),
+                                    SizedBox(width: 6),
+                                    Text(
+                                      '上传物品',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
                           ),
                         ),
                       ],
                     ],
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -8929,21 +12415,66 @@ class _PropGenerationPanelState extends State<PropGenerationPanel> {
     try {
       final apiService = apiConfigManager.createApiService();
       
-      // 异步调用图片生成API，不阻塞UI
+      // 1. 专业提示词（来自简易设置）
+      final professionalPrompt = _professionalPromptController.text.trim();
+      // 2. 参考风格提示词（来自简易设置）
+      final referencePrompt = _referenceStylePromptController.text.trim();
+      // 3. 物品描述提示词（来自卡片输入框）
+      
+      // 组合顺序：专业提示词 + 参考风格提示词 + 物品描述
+      List<String> promptParts = [];
+      if (professionalPrompt.isNotEmpty) {
+        promptParts.add(professionalPrompt);
+      }
+      if (_referenceStyleImagePath != null && _referenceStyleImagePath!.isNotEmpty && referencePrompt.isNotEmpty) {
+        promptParts.add(referencePrompt);
+      }
+      promptParts.add(imagePrompt);
+      
+      final finalPrompt = promptParts.join(', ');
+      
+      // 准备参考图片列表（如果有）
+      List<String>? referenceImages;
+      if (_referenceStyleImagePath != null && _referenceStyleImagePath!.isNotEmpty) {
+        referenceImages = [_referenceStyleImagePath!];
+      }
+      
+      // 根据比例获取实际像素尺寸
+      final pixels = _aspectRatioToPixels[_selectedAspectRatio] ?? {'width': 1024, 'height': 1024};
+      final width = pixels['width']!;
+      final height = pixels['height']!;
+      
+      logService.info('使用比例生成图片', details: '比例: $_selectedAspectRatio, 尺寸: ${width}x${height}');
+      
+      // 异步调用图片生成API，不阻塞UI，使用简易设置中的分辨率
       final response = await apiService.generateImage(
-        prompt: imagePrompt,
+        prompt: finalPrompt,
         model: apiConfigManager.imageModel,
-        width: 1024,
-        height: 1024,
+        width: width,
+        height: height,
         quality: 'standard',
+        referenceImages: referenceImages, // 传入参考图片
       );
 
       if (mounted) {
+        // 先更新UI显示图片
         setState(() {
           prop['imageUrl'] = response.imageUrl;
           _generatingImages[index] = false;
-          // 更新workspaceState
           workspaceState.updateProp(index, prop);
+        });
+        
+        // 异步下载并保存图片到本地（不阻塞UI）
+        _downloadAndSavePropImage(response.imageUrl, index).then((localPath) {
+          if (localPath != null && mounted) {
+            setState(() {
+              prop['localImagePath'] = localPath;
+              workspaceState.updateProp(index, prop);
+            });
+            logService.info('物品图片已保存到本地', details: localPath);
+          }
+        }).catchError((e) {
+          logService.error('保存物品图片到本地失败', details: e.toString());
         });
         
         ScaffoldMessenger.of(context).showSnackBar(
@@ -8962,6 +12493,137 @@ class _PropGenerationPanelState extends State<PropGenerationPanel> {
       }
     }
   }
+  
+  // 下载并保存物品图片到本地
+  Future<String?> _downloadAndSavePropImage(String imageUrl, int index) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final autoSave = prefs.getBool('auto_save_images') ?? false;
+      final savePath = prefs.getString('image_save_path') ?? '';
+      
+      // 获取物品名称
+      final prop = _props[index];
+      final propName = (prop['name'] as String?)?.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_') ?? 'prop';
+      
+      // 确定保存目录
+      Directory dir;
+      if (autoSave && savePath.isNotEmpty) {
+        dir = Directory(savePath);
+        if (!await dir.exists()) {
+          await dir.create(recursive: true);
+        }
+      } else {
+        final tempDir = await getTemporaryDirectory();
+        dir = Directory('${tempDir.path}/xinghe_props');
+        if (!await dir.exists()) {
+          await dir.create(recursive: true);
+        }
+      }
+      
+      // 下载图片
+      Uint8List imageBytes;
+      String fileExtension = 'png';
+      
+      if (imageUrl.startsWith('data:image/')) {
+        final base64Index = imageUrl.indexOf('base64,');
+        if (base64Index == -1) {
+          throw Exception('无效的Base64数据URI');
+        }
+        final base64Data = imageUrl.substring(base64Index + 7);
+        imageBytes = base64Decode(base64Data);
+        
+        final mimeMatch = RegExp(r'data:image/([^;]+)').firstMatch(imageUrl);
+        if (mimeMatch != null) {
+          final mimeType = mimeMatch.group(1) ?? 'png';
+          if (mimeType.contains('jpeg') || mimeType.contains('jpg')) {
+            fileExtension = 'jpg';
+          } else if (mimeType.contains('webp')) {
+            fileExtension = 'webp';
+          }
+        }
+      } else if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+        final response = await http.get(Uri.parse(imageUrl));
+        if (response.statusCode != 200) {
+          throw Exception('下载图片失败: HTTP ${response.statusCode}');
+        }
+        imageBytes = response.bodyBytes;
+        
+        final contentType = response.headers['content-type'];
+        if (contentType != null) {
+          if (contentType.contains('jpeg') || contentType.contains('jpg')) {
+            fileExtension = 'jpg';
+          } else if (contentType.contains('webp')) {
+            fileExtension = 'webp';
+          }
+        }
+      } else {
+        throw Exception('不支持的图片URL格式');
+      }
+      
+      // 保存文件
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final fileName = 'prop_${propName}_$timestamp.$fileExtension';
+      final filePath = '${dir.path}${Platform.pathSeparator}$fileName';
+      final file = File(filePath);
+      await file.writeAsBytes(imageBytes);
+      
+      print('✅ 物品图片已保存: $filePath');
+      return filePath;
+    } catch (e, stackTrace) {
+      print('❌ 保存物品图片失败: $e');
+      print('📍 堆栈跟踪: $stackTrace');
+      return null;
+    }
+  }
+  
+  // 从素材库选择物品
+  void _selectPropFromLibrary(int index) {
+    logService.action('打开物品素材库选择器');
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => _PropMaterialPickerDialog(
+        onMaterialSelected: (material) {
+          if (!mounted) return;
+          setState(() {
+            final prop = _props[index];
+            prop['localImagePath'] = material['path'];
+            prop['imageUrl'] = material['path'];
+            workspaceState.updateProp(index, prop);
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('已选择物品: ${material['name']}'),
+              backgroundColor: AnimeColors.miku,
+              duration: Duration(seconds: 2),
+            ),
+          );
+          logService.action('从素材库选择物品', details: '名称: ${material['name']}, 路径: ${material['path']}');
+        },
+      ),
+    );
+  }
+  
+  // 上传物品到API
+  Future<void> _uploadPropToAPI(int index) async {
+    if (index >= _props.length) return;
+    
+    final prop = _props[index];
+    final propName = prop['name'] as String? ?? '未命名物品';
+    
+    // TODO: 实现物品上传逻辑
+    // 类似角色上传，但针对物品
+    
+    logService.action('上传物品功能开发中', details: '物品名称: $propName');
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('物品上传功能开发中'),
+        backgroundColor: Colors.orange,
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
 }
 
 // 分镜生成面板（直接显示分镜卡片列表）
@@ -8977,33 +12639,72 @@ class _StoryboardGenerationPanelState extends State<StoryboardGenerationPanel> {
   // 为每个分镜的图片和视频提示词缓存TextEditingController
   final Map<int, TextEditingController> _imagePromptControllers = {};
   final Map<int, TextEditingController> _videoPromptControllers = {};
-  String? _selectedImageTemplate; // 选中的图片提示词模板名称
-  String? _selectedVideoTemplate; // 选中的视频提示词模板名称
-  Map<String, String> _promptTemplates = {}; // 图片提示词模板列表（分镜生成使用image类型）
-  Map<String, String> _videoPromptTemplates = {}; // 视频提示词模板列表
+  
+  // 模板选择（使用 PromptStore 和模板 ID）
+  String? _selectedImageTemplateId; // 选中的图片提示词模板ID
+  String? _selectedVideoTemplateId; // 选中的视频提示词模板ID
+  String? _selectedComprehensiveTemplateId; // 选中的综合提示词模板ID
+  
+  // 从 PromptStore 加载的模板列表
+  List<PromptTemplate> _availableImageTemplates = [];
+  List<PromptTemplate> _availableVideoTemplates = [];
+  List<PromptTemplate> _availableComprehensiveTemplates = [];
+  bool _isLoadingTemplates = true;
 
   @override
   void initState() {
     super.initState();
     _loadStoryboards();
-    _loadPromptTemplates();
+    _loadTemplatesFromPromptStore(); // 从 PromptStore 加载模板
     _loadSelectedTemplate();
+    
+    // 监听 PromptStore 变化
+    promptStore.addListener(_onPromptStoreChanged);
+  }
+  
+  /// 当 PromptStore 发生变化时重新加载模板
+  void _onPromptStoreChanged() {
+    _loadTemplatesFromPromptStore();
   }
 
-  // 加载提示词模板
-  Future<void> _loadPromptTemplates() async {
+  /// 从 PromptStore 加载所有类型的提示词模板
+  Future<void> _loadTemplatesFromPromptStore() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final promptsJson = prefs.getString('prompts');
-      if (promptsJson != null) {
-        final decoded = jsonDecode(promptsJson) as Map<String, dynamic>;
+      setState(() {
+        _isLoadingTemplates = true;
+      });
+      
+      // 确保 PromptStore 已初始化
+      if (!promptStore.isInitialized) {
+        await promptStore.initialize();
+      }
+      
+      // 获取三种类型的模板
+      final imageTemplates = promptStore.getTemplates(PromptCategory.image);
+      final videoTemplates = promptStore.getTemplates(PromptCategory.video);
+      final comprehensiveTemplates = promptStore.getTemplates(PromptCategory.comprehensive);
+      
+      if (mounted) {
         setState(() {
-          _promptTemplates = Map<String, String>.from(decoded['image'] ?? {});
-          _videoPromptTemplates = Map<String, String>.from(decoded['video'] ?? {});
+          _availableImageTemplates = imageTemplates;
+          _availableVideoTemplates = videoTemplates;
+          _availableComprehensiveTemplates = comprehensiveTemplates;
+          _isLoadingTemplates = false;
+        });
+        
+        logService.info('已加载分镜提示词模板', 
+          details: '图片: ${imageTemplates.length}, 视频: ${videoTemplates.length}, 综合: ${comprehensiveTemplates.length}');
+      }
+      
+      // 在模板加载完成后，加载保存的选择
+      _loadSelectedTemplate();
+    } catch (e) {
+      logService.error('加载提示词模板失败（分镜生成）', details: e.toString());
+      if (mounted) {
+        setState(() {
+          _isLoadingTemplates = false;
         });
       }
-    } catch (e) {
-      logService.error('加载提示词模板失败', details: e.toString());
     }
   }
 
@@ -9011,20 +12712,34 @@ class _StoryboardGenerationPanelState extends State<StoryboardGenerationPanel> {
   Future<void> _loadSelectedTemplate() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final savedImageTemplate = prefs.getString('storyboard_selected_image_template');
-      final savedVideoTemplate = prefs.getString('storyboard_selected_video_template');
+      final savedImageTemplateId = prefs.getString('storyboard_selected_image_template_id');
+      final savedVideoTemplateId = prefs.getString('storyboard_selected_video_template_id');
+      final savedComprehensiveTemplateId = prefs.getString('storyboard_selected_comprehensive_template_id');
+      
       if (mounted) {
         setState(() {
-          if (savedImageTemplate != null && savedImageTemplate.isNotEmpty) {
-            _selectedImageTemplate = savedImageTemplate;
+          // 验证模板ID是否存在于可用模板列表中
+          if (savedImageTemplateId != null && 
+              _availableImageTemplates.any((t) => t.id == savedImageTemplateId)) {
+            _selectedImageTemplateId = savedImageTemplateId;
           }
-          if (savedVideoTemplate != null && savedVideoTemplate.isNotEmpty) {
-            _selectedVideoTemplate = savedVideoTemplate;
+          
+          if (savedVideoTemplateId != null && 
+              _availableVideoTemplates.any((t) => t.id == savedVideoTemplateId)) {
+            _selectedVideoTemplateId = savedVideoTemplateId;
+          }
+          
+          if (savedComprehensiveTemplateId != null && 
+              _availableComprehensiveTemplates.any((t) => t.id == savedComprehensiveTemplateId)) {
+            _selectedComprehensiveTemplateId = savedComprehensiveTemplateId;
+            // 联动逻辑：如果选择了综合提示词，自动取消生图和生视频的模板选择
+            _selectedImageTemplateId = null;
+            _selectedVideoTemplateId = null;
           }
         });
       }
     } catch (e) {
-      logService.error('加载保存的模板选择失败', details: e.toString());
+      logService.error('加载保存的模板选择失败（分镜生成）', details: e.toString());
     }
   }
 
@@ -9032,47 +12747,84 @@ class _StoryboardGenerationPanelState extends State<StoryboardGenerationPanel> {
   Future<void> _saveSelectedTemplate() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      if (_selectedImageTemplate != null) {
-        await prefs.setString('storyboard_selected_image_template', _selectedImageTemplate!);
+      
+      // 保存或清除图片模板选择
+      if (_selectedImageTemplateId != null) {
+        await prefs.setString('storyboard_selected_image_template_id', _selectedImageTemplateId!);
       } else {
-        await prefs.remove('storyboard_selected_image_template');
+        await prefs.remove('storyboard_selected_image_template_id');
       }
-      if (_selectedVideoTemplate != null) {
-        await prefs.setString('storyboard_selected_video_template', _selectedVideoTemplate!);
+      
+      // 保存或清除视频模板选择
+      if (_selectedVideoTemplateId != null) {
+        await prefs.setString('storyboard_selected_video_template_id', _selectedVideoTemplateId!);
       } else {
-        await prefs.remove('storyboard_selected_video_template');
+        await prefs.remove('storyboard_selected_video_template_id');
       }
-      logService.info('保存模板选择', details: '图片: ${_selectedImageTemplate ?? '不使用'}, 视频: ${_selectedVideoTemplate ?? '不使用'}');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('模板选择已保存'),
-            backgroundColor: AnimeColors.miku,
-            duration: Duration(seconds: 2),
-          ),
-        );
+      
+      // 保存或清除综合模板选择
+      if (_selectedComprehensiveTemplateId != null) {
+        await prefs.setString('storyboard_selected_comprehensive_template_id', _selectedComprehensiveTemplateId!);
+      } else {
+        await prefs.remove('storyboard_selected_comprehensive_template_id');
       }
+      
+      logService.info('保存分镜模板选择', 
+        details: '图片: ${_selectedImageTemplateId ?? '不使用'}, '
+                 '视频: ${_selectedVideoTemplateId ?? '不使用'}, '
+                 '综合: ${_selectedComprehensiveTemplateId ?? '不使用'}');
     } catch (e) {
-      logService.error('保存模板选择失败', details: e.toString());
+      logService.error('保存模板选择失败（分镜生成）', details: e.toString());
     }
   }
 
-  // 显示分镜模板选择对话框（支持生图提示词和生视频提示词）
+  // 显示分镜模板选择对话框（支持生图、生视频、综合提示词）
   void _showStoryboardTemplateSelector() {
     showDialog(
       context: context,
-      builder: (context) => _StoryboardTemplateManagerDialog(
-        selectedImageTemplate: _selectedImageTemplate,
-        selectedVideoTemplate: _selectedVideoTemplate,
-        onSelect: (imageTemplate, videoTemplate) {
+      builder: (context) => StoryboardTemplatePickerDialog(
+        availableImageTemplates: _availableImageTemplates,
+        availableVideoTemplates: _availableVideoTemplates,
+        availableComprehensiveTemplates: _availableComprehensiveTemplates,
+        selectedImageTemplateId: _selectedImageTemplateId,
+        selectedVideoTemplateId: _selectedVideoTemplateId,
+        selectedComprehensiveTemplateId: _selectedComprehensiveTemplateId,
+        onSelect: (imageTemplateId, videoTemplateId, comprehensiveTemplateId) {
           setState(() {
-            _selectedImageTemplate = imageTemplate;
-            _selectedVideoTemplate = videoTemplate;
+            // 联动逻辑：如果选择了综合提示词，自动取消图片和视频的模板选择
+            if (comprehensiveTemplateId != null) {
+              _selectedComprehensiveTemplateId = comprehensiveTemplateId;
+              _selectedImageTemplateId = null;
+              _selectedVideoTemplateId = null;
+            } else {
+              _selectedImageTemplateId = imageTemplateId;
+              _selectedVideoTemplateId = videoTemplateId;
+              _selectedComprehensiveTemplateId = null;
+            }
           });
           _saveSelectedTemplate();
+          
+          if (mounted) {
+            String message = comprehensiveTemplateId != null 
+                ? '已选择综合提示词模板（图片和视频提示词已自动取消）'
+                : '已选择分镜提示词模板';
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(message),
+                backgroundColor: AnimeColors.purple,
+                duration: Duration(seconds: 2),
+              ),
+            );
+          }
         },
-        onSave: () {
-          _loadPromptTemplates();
+        onManageTemplates: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const PromptConfigView()),
+          ).then((_) {
+            // 从设置返回后重新加载模板
+            _loadTemplatesFromPromptStore();
+          });
         },
       ),
     );
@@ -9081,6 +12833,9 @@ class _StoryboardGenerationPanelState extends State<StoryboardGenerationPanel> {
 
   @override
   void dispose() {
+    // 移除 PromptStore 监听器
+    promptStore.removeListener(_onPromptStoreChanged);
+    
     // 清理所有Controller
     for (var controller in _imagePromptControllers.values) {
       controller.dispose();
@@ -9268,11 +13023,14 @@ class _StoryboardGenerationPanelState extends State<StoryboardGenerationPanel> {
       // 构建系统提示词
       String systemPrompt = '你是一个专业的图片提示词生成器。请根据分镜描述，生成一个简洁、准确的图片生成提示词，包含场景、人物、动作、风格等关键信息。提示词应该适合用于AI图片生成，长度控制在50-100字。';
       
-      // 如果选择了图片模板，在系统提示词后加上模板内容
-      if (_selectedImageTemplate != null && _promptTemplates.containsKey(_selectedImageTemplate)) {
-        final templateContent = _promptTemplates[_selectedImageTemplate]!;
-        if (templateContent.isNotEmpty) {
-          systemPrompt = '$systemPrompt\n\n$templateContent';
+      // 如果选择了图片模板，使用模板内容
+      if (_selectedImageTemplateId != null) {
+        final template = _availableImageTemplates.firstWhere(
+          (t) => t.id == _selectedImageTemplateId,
+          orElse: () => _availableImageTemplates.first,
+        );
+        if (template.content.isNotEmpty) {
+          systemPrompt = '$systemPrompt\n\n${template.content}';
         }
       }
       
@@ -9306,11 +13064,14 @@ class _StoryboardGenerationPanelState extends State<StoryboardGenerationPanel> {
       // 构建系统提示词
       String systemPrompt = '你是一个专业的视频提示词生成器。请根据分镜描述，生成一个简洁、准确的视频生成提示词，重点描述动作、运动、变化等动态元素。提示词应该适合用于AI视频生成，长度控制在50-100字。';
       
-      // 如果选择了视频模板，在系统提示词后加上模板内容
-      if (_selectedVideoTemplate != null && _videoPromptTemplates.containsKey(_selectedVideoTemplate)) {
-        final templateContent = _videoPromptTemplates[_selectedVideoTemplate]!;
-        if (templateContent.isNotEmpty) {
-          systemPrompt = '$systemPrompt\n\n$templateContent';
+      // 如果选择了视频模板，使用模板内容
+      if (_selectedVideoTemplateId != null) {
+        final template = _availableVideoTemplates.firstWhere(
+          (t) => t.id == _selectedVideoTemplateId,
+          orElse: () => _availableVideoTemplates.first,
+        );
+        if (template.content.isNotEmpty) {
+          systemPrompt = '$systemPrompt\n\n${template.content}';
         }
       }
       
@@ -9333,6 +13094,83 @@ class _StoryboardGenerationPanelState extends State<StoryboardGenerationPanel> {
     } catch (e) {
       logService.error('生成视频提示词失败', details: e.toString());
       return '';
+    }
+  }
+
+  // 使用综合提示词同时生成图片和视频提示词
+  Future<Map<String, String>> _generateComprehensivePrompts(String storyboardContent) async {
+    try {
+      final apiService = apiConfigManager.createApiService();
+      
+      // 获取综合提示词模板
+      if (_selectedComprehensiveTemplateId == null) {
+        return {'imagePrompt': '', 'videoPrompt': ''};
+      }
+      
+      final template = _availableComprehensiveTemplates.firstWhere(
+        (t) => t.id == _selectedComprehensiveTemplateId,
+        orElse: () => _availableComprehensiveTemplates.first,
+      );
+      
+      // 替换模板中的 {{input}} 占位符
+      String userPrompt = template.content.replaceAll('{{input}}', storyboardContent);
+      
+      final response = await apiService.chatCompletion(
+        model: apiConfigManager.llmModel,
+        messages: [
+          {
+            'role': 'user',
+            'content': userPrompt,
+          },
+        ],
+        temperature: 0.7,
+        maxTokens: 500,
+      );
+      
+      final responseText = response.choices.first.message.content.trim();
+      
+      // 尝试解析 JSON 格式的返回
+      try {
+        final jsonMatch = RegExp(r'\{[\s\S]*"imagePrompt"[\s\S]*"videoPrompt"[\s\S]*\}').firstMatch(responseText);
+        if (jsonMatch != null) {
+          final jsonData = jsonDecode(jsonMatch.group(0)!);
+          return {
+            'imagePrompt': jsonData['imagePrompt'] as String? ?? '',
+            'videoPrompt': jsonData['videoPrompt'] as String? ?? '',
+          };
+        }
+      } catch (e) {
+        logService.error('解析综合提示词 JSON 失败', details: e.toString());
+      }
+      
+      // 如果 JSON 解析失败，尝试按行分割
+      final lines = responseText.split('\n');
+      String imagePrompt = '';
+      String videoPrompt = '';
+      bool inImage = false;
+      bool inVideo = false;
+      
+      for (final line in lines) {
+        if (line.contains('图片提示词') || line.contains('imagePrompt')) {
+          inImage = true;
+          inVideo = false;
+        } else if (line.contains('视频提示词') || line.contains('videoPrompt')) {
+          inVideo = true;
+          inImage = false;
+        } else if (inImage && line.trim().isNotEmpty) {
+          imagePrompt += line.trim() + ' ';
+        } else if (inVideo && line.trim().isNotEmpty) {
+          videoPrompt += line.trim() + ' ';
+        }
+      }
+      
+      return {
+        'imagePrompt': imagePrompt.trim(),
+        'videoPrompt': videoPrompt.trim(),
+      };
+    } catch (e) {
+      logService.error('生成综合提示词失败', details: e.toString());
+      return {'imagePrompt': '', 'videoPrompt': ''};
     }
   }
 
@@ -9397,17 +13235,33 @@ class _StoryboardGenerationPanelState extends State<StoryboardGenerationPanel> {
         final storyboard = _storyboards[i];
         final content = storyboard['content'] as String;
         
-        // 并行生成图片和视频提示词
-        final results = await Future.wait([
-          _generateImagePrompt(content),
-          _generateVideoPrompt(content),
-        ]);
+        String imagePrompt = '';
+        String videoPrompt = '';
+        
+        // 检查是否选择了综合提示词
+        if (_selectedComprehensiveTemplateId != null) {
+          // 使用综合提示词同时生成图片和视频提示词
+          final comprehensiveResult = await _generateComprehensivePrompts(content);
+          imagePrompt = comprehensiveResult['imagePrompt'] ?? '';
+          videoPrompt = comprehensiveResult['videoPrompt'] ?? '';
+          
+          logService.info('使用综合提示词生成', 
+            details: '分镜 ${i + 1}: 图片=${imagePrompt.length}字, 视频=${videoPrompt.length}字');
+        } else {
+          // 分别生成图片和视频提示词
+          final results = await Future.wait([
+            _generateImagePrompt(content),
+            _generateVideoPrompt(content),
+          ]);
+          imagePrompt = results[0];
+          videoPrompt = results[1];
+        }
         
         // 更新分镜的提示词
         _storyboards[i] = {
           ...storyboard,
-          'imagePrompt': results[0],
-          'videoPrompt': results[1],
+          'imagePrompt': imagePrompt,
+          'videoPrompt': videoPrompt,
         };
         
         // 每生成一个分镜就更新一次UI
@@ -9449,7 +13303,21 @@ class _StoryboardGenerationPanelState extends State<StoryboardGenerationPanel> {
   }
 
   void _showGenerateDialog() {
-    final TextEditingController scriptController = TextEditingController();
+    // 自动从剧本生成面板读取内容
+    final scriptContent = workspaceState.script ?? '';
+    final TextEditingController scriptController = TextEditingController(text: scriptContent);
+    
+    // 如果没有剧本内容，给出提示
+    if (scriptContent.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('请先在"剧本生成"面板生成或编辑剧本'),
+          backgroundColor: AnimeColors.sakura,
+          duration: Duration(seconds: 3),
+        ),
+      );
+      // 仍然打开对话框，但输入框为空，用户可以手动粘贴
+    }
     
     showDialog(
       context: context,
@@ -9994,14 +13862,41 @@ class _StoryboardGenerationPanelState extends State<StoryboardGenerationPanel> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      '分镜生成',
-                      style: TextStyle(
-                        fontSize: 26,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                      ),
+                    Row(
+                      children: [
+                        Text(
+                          '分镜生成',
+                          style: TextStyle(
+                            fontSize: 26,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
+                        SizedBox(width: 16),
+                        // 三个子功能按钮 - 点击后弹出对话框
+                        _buildSubPanelButton(
+                          icon: Icons.person_outline,
+                          label: '角色',
+                          isSelected: false,
+                          onTap: _showCharacterDialog,
+                        ),
+                        SizedBox(width: 8),
+                        _buildSubPanelButton(
+                          icon: Icons.landscape_outlined,
+                          label: '场景',
+                          isSelected: false,
+                          onTap: _showSceneDialog,
+                        ),
+                        SizedBox(width: 8),
+                        _buildSubPanelButton(
+                          icon: Icons.inventory_2_outlined,
+                          label: '物品',
+                          isSelected: false,
+                          onTap: _showPropDialog,
+                        ),
+                      ],
                     ),
+                    SizedBox(height: 4),
                     Text(
                       '分镜列表（${_storyboards.length}个分镜）',
                       style: TextStyle(
@@ -10043,18 +13938,30 @@ class _StoryboardGenerationPanelState extends State<StoryboardGenerationPanel> {
               SizedBox(width: 12),
               // 提示词模板选择按钮
               TextButton.icon(
-                onPressed: () => _showStoryboardTemplateSelector(),
+                onPressed: _isLoadingTemplates ? null : _showStoryboardTemplateSelector,
                 icon: Icon(
                   Icons.text_snippet,
                   size: 16,
-                  color: (_selectedImageTemplate != null || _selectedVideoTemplate != null) ? AnimeColors.purple : Colors.white54,
+                  color: (_selectedImageTemplateId != null || 
+                          _selectedVideoTemplateId != null || 
+                          _selectedComprehensiveTemplateId != null) 
+                      ? AnimeColors.purple 
+                      : Colors.white54,
                 ),
                 label: Text(
-                  (_selectedImageTemplate != null || _selectedVideoTemplate != null) 
-                    ? '提示词模板' 
-                    : '提示词模板',
+                  _isLoadingTemplates 
+                      ? '加载中...'
+                      : (_selectedComprehensiveTemplateId != null 
+                          ? '综合提示词' 
+                          : (_selectedImageTemplateId != null || _selectedVideoTemplateId != null 
+                              ? '提示词模板' 
+                              : '提示词模板')),
                   style: TextStyle(
-                    color: (_selectedImageTemplate != null || _selectedVideoTemplate != null) ? AnimeColors.purple : Colors.white54,
+                    color: (_selectedImageTemplateId != null || 
+                            _selectedVideoTemplateId != null || 
+                            _selectedComprehensiveTemplateId != null) 
+                        ? AnimeColors.purple 
+                        : Colors.white54,
                     fontSize: 12,
                   ),
                 ),
@@ -10066,7 +13973,9 @@ class _StoryboardGenerationPanelState extends State<StoryboardGenerationPanel> {
               ),
               SizedBox(width: 8),
               // 保存按钮
-              if (_selectedImageTemplate != null || _selectedVideoTemplate != null)
+              if (_selectedImageTemplateId != null || 
+                  _selectedVideoTemplateId != null || 
+                  _selectedComprehensiveTemplateId != null)
                 IconButton(
                   icon: Icon(Icons.save, size: 18, color: AnimeColors.purple),
                   tooltip: '保存模板选择',
@@ -10077,70 +13986,51 @@ class _StoryboardGenerationPanelState extends State<StoryboardGenerationPanel> {
                   constraints: BoxConstraints(),
                 ),
               SizedBox(width: 12),
-              // 增加分镜按钮
-              InkWell(
-                onTap: _addStoryboard,
-                borderRadius: BorderRadius.circular(12),
-                child: Container(
-                  padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AnimeColors.miku.withOpacity(0.5), width: 1.5),
-                    color: Colors.transparent,
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.add, color: AnimeColors.miku, size: 18),
-                      SizedBox(width: 8),
-                      Text(
-                        '增加分镜',
-                        style: TextStyle(
-                          color: AnimeColors.miku,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+              // 增加分镜按钮（简化版，仅图标）
+              IconButton(
+                onPressed: _addStoryboard,
+                icon: Icon(Icons.add_circle_outline, color: AnimeColors.miku, size: 20),
+                tooltip: '增加分镜',
+                padding: EdgeInsets.zero,
+                constraints: BoxConstraints(),
               ),
               SizedBox(width: 12),
-              // 删除所有分镜按钮
-              InkWell(
-                onTap: _clearAllStoryboards,
-                borderRadius: BorderRadius.circular(12),
-                child: Container(
-                  padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AnimeColors.sakura.withOpacity(0.5), width: 1.5),
-                    color: Colors.transparent,
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.delete_sweep_outlined, color: AnimeColors.sakura, size: 18),
-                      SizedBox(width: 8),
-                      Text(
-                        '删除所有',
-                        style: TextStyle(
-                          color: AnimeColors.sakura,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+              // 删除所有分镜按钮（简化版，仅图标）
+              IconButton(
+                onPressed: _clearAllStoryboards,
+                icon: Icon(Icons.delete_sweep_outlined, color: AnimeColors.sakura, size: 20),
+                tooltip: '删除所有',
+                padding: EdgeInsets.zero,
+                constraints: BoxConstraints(),
               ),
             ],
           ),
           SizedBox(height: 20),
-          // 生成设置区域
-          _buildGenerationSettings(),
-          SizedBox(height: 20),
-          // 分镜列表
+          // 根据当前选择显示不同的子面板
           Expanded(
-            child: _storyboards.isEmpty
+            child: _buildCurrentSubPanel(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // 构建主内容区域 - 始终显示分镜内容
+  Widget _buildCurrentSubPanel() {
+    return _buildStoryboardContent();
+  }
+
+  // 构建分镜内容（原来的主体内容）
+  Widget _buildStoryboardContent() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // 生成设置区域
+        _buildGenerationSettings(),
+        SizedBox(height: 20),
+        // 分镜列表
+        Expanded(
+          child: _storyboards.isEmpty
                 ? Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -10186,8 +14076,333 @@ class _StoryboardGenerationPanelState extends State<StoryboardGenerationPanel> {
                       return _buildStoryboardCard(index);
                     },
                   ),
+        ),
+      ],
+    );
+  }
+  
+  // 显示角色生成对话框
+  void _showCharacterDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => Dialog(
+        backgroundColor: Color(0xFF1a1a2e),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: AnimeColors.sakura.withOpacity(0.3), width: 1),
+        ),
+        child: Container(
+          width: MediaQuery.of(context).size.width * 0.9,
+          height: MediaQuery.of(context).size.height * 0.85,
+          child: Column(
+            children: [
+              // 对话框标题栏
+              Container(
+                padding: EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  border: Border(
+                    bottom: BorderSide(color: Colors.white.withOpacity(0.1)),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.person_outline, color: AnimeColors.sakura, size: 24),
+                    SizedBox(width: 12),
+                    Text(
+                      '角色生成',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
+                    Spacer(),
+                    IconButton(
+                      icon: Icon(Icons.close, color: Colors.white54),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  ],
+                ),
+              ),
+              // 角色生成面板内容
+              Expanded(
+                child: CharacterGenerationPanel(key: ValueKey('character_dialog')),
+              ),
+            ],
           ),
-        ],
+        ),
+      ),
+    );
+  }
+
+  // 显示场景生成对话框（优化：异步加载，立即显示）
+  Future<void> _showSceneDialog() async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => Dialog(
+        backgroundColor: Color(0xFF1a1a2e), // 不透明背景，不再半透明
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: AnimeColors.miku.withOpacity(0.3), width: 1),
+        ),
+        child: Container(
+          width: MediaQuery.of(context).size.width * 0.9,
+          height: MediaQuery.of(context).size.height * 0.85,
+          child: Column(
+            children: [
+              // 对话框标题栏
+              Container(
+                padding: EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  border: Border(
+                    bottom: BorderSide(color: Colors.white.withOpacity(0.1)),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.landscape_outlined, color: AnimeColors.miku, size: 24),
+                    SizedBox(width: 12),
+                    Text(
+                      '场景生成',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
+                    Spacer(),
+                    IconButton(
+                      icon: Icon(Icons.close, color: Colors.white54),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  ],
+                ),
+              ),
+              // 场景生成面板内容（异步加载）
+              Expanded(
+                child: FutureBuilder(
+                  future: Future.microtask(() => true),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              Color(0xFF1a1a2e),
+                              Color(0xFF1a2a3e),
+                              Color(0xFF1a1a2e),
+                            ],
+                          ),
+                        ),
+                        child: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Container(
+                                padding: EdgeInsets.all(24),
+                                decoration: BoxDecoration(
+                                  color: AnimeColors.miku.withOpacity(0.1),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: AnimeColors.miku.withOpacity(0.3),
+                                    width: 2,
+                                  ),
+                                ),
+                                child: CircularProgressIndicator(
+                                  color: AnimeColors.miku,
+                                  strokeWidth: 3,
+                                ),
+                              ),
+                              SizedBox(height: 24),
+                              Text(
+                                '正在加载场景生成...',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              SizedBox(height: 8),
+                              Text(
+                                '请稍候',
+                                style: TextStyle(
+                                  color: Colors.white54,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }
+                    return SceneGenerationPanel(key: ValueKey('scene_dialog'));
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // 显示物品生成对话框（优化：异步加载，立即显示）
+  Future<void> _showPropDialog() async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => Dialog(
+        backgroundColor: Color(0xFF1a1a2e), // 不透明背景，不再半透明
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: AnimeColors.orangeAccent.withOpacity(0.3), width: 1),
+        ),
+        child: Container(
+          width: MediaQuery.of(context).size.width * 0.9,
+          height: MediaQuery.of(context).size.height * 0.85,
+          child: Column(
+            children: [
+              // 对话框标题栏
+              Container(
+                padding: EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  border: Border(
+                    bottom: BorderSide(color: Colors.white.withOpacity(0.1)),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.inventory_2_outlined, color: AnimeColors.orangeAccent, size: 24),
+                    SizedBox(width: 12),
+                    Text(
+                      '物品生成',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
+                    Spacer(),
+                    IconButton(
+                      icon: Icon(Icons.close, color: Colors.white54),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  ],
+                ),
+              ),
+              // 物品生成面板内容（异步加载）
+              Expanded(
+                child: FutureBuilder(
+                  future: Future.microtask(() => true),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              Color(0xFF1a1a2e),
+                              Color(0xFF2a1a1e),
+                              Color(0xFF1a1a2e),
+                            ],
+                          ),
+                        ),
+                        child: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Container(
+                                padding: EdgeInsets.all(24),
+                                decoration: BoxDecoration(
+                                  color: AnimeColors.orangeAccent.withOpacity(0.1),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: AnimeColors.orangeAccent.withOpacity(0.3),
+                                    width: 2,
+                                  ),
+                                ),
+                                child: CircularProgressIndicator(
+                                  color: AnimeColors.orangeAccent,
+                                  strokeWidth: 3,
+                                ),
+                              ),
+                              SizedBox(height: 24),
+                              Text(
+                                '正在加载物品生成...',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              SizedBox(height: 8),
+                              Text(
+                                '请稍候',
+                                style: TextStyle(
+                                  color: Colors.white54,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }
+                    return PropGenerationPanel(key: ValueKey('prop_dialog'));
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+  
+  // 构建子面板切换按钮
+  Widget _buildSubPanelButton({
+    required IconData icon,
+    required String label,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected ? AnimeColors.purple.withOpacity(0.2) : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isSelected ? AnimeColors.purple : Colors.white.withOpacity(0.2),
+            width: isSelected ? 2 : 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 16,
+              color: isSelected ? AnimeColors.purple : Colors.white54,
+            ),
+            SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                color: isSelected ? AnimeColors.purple : Colors.white54,
+                fontSize: 13,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -15345,6 +19560,624 @@ class _VideoListWidget extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+// ==================== 角色素材选择对话框 ====================
+class _CharacterMaterialPickerDialog extends StatefulWidget {
+  final Function(Map<String, String>) onCharacterSelected;
+  
+  const _CharacterMaterialPickerDialog({
+    required this.onCharacterSelected,
+  });
+  
+  @override
+  State<_CharacterMaterialPickerDialog> createState() => _CharacterMaterialPickerDialogState();
+}
+
+class _CharacterMaterialPickerDialogState extends State<_CharacterMaterialPickerDialog> {
+  Map<String, List<Map<String, String>>> _characterMaterials = {};
+  List<String> _styleCategories = [];
+  int _selectedStyleIndex = 0;
+  bool _isLoading = true;
+  
+  // 风格ID到中文名称的映射
+  final Map<String, String> _styleNameMap = {
+    'xianxia': '仙侠风格',
+    'dushi': '都市风格',
+    'gufeng': '古风风格',
+  };
+  
+  @override
+  void initState() {
+    super.initState();
+    _loadCharacterMaterials();
+  }
+  
+  Future<void> _loadCharacterMaterials() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      // 加载角色素材
+      final charJson = prefs.getString('character_materials');
+      if (charJson != null) {
+        final decoded = jsonDecode(charJson) as Map<String, dynamic>;
+        _characterMaterials = decoded.map((key, value) => 
+          MapEntry(key, (value as List).map((e) => Map<String, String>.from(e)).toList()));
+        _styleCategories = _characterMaterials.keys.toList();
+      }
+      
+      setState(() => _isLoading = false);
+    } catch (e) {
+      print('加载角色素材失败: $e');
+      setState(() => _isLoading = false);
+    }
+  }
+  
+  List<Map<String, String>> _getCurrentStyleMaterials() {
+    if (_styleCategories.isEmpty) return [];
+    final styleKey = _styleCategories[_selectedStyleIndex];
+    return _characterMaterials[styleKey] ?? [];
+  }
+  
+  // 将拼音ID转换为中文名称
+  String _getStyleDisplayName(String styleId) {
+    return _styleNameMap[styleId] ?? styleId;
+  }
+  
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      child: Container(
+        width: MediaQuery.of(context).size.width * 0.8,
+        height: MediaQuery.of(context).size.height * 0.8,
+        decoration: BoxDecoration(
+          color: AnimeColors.darkBg,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: AnimeColors.miku.withOpacity(0.3), width: 2),
+        ),
+        child: Column(
+          children: [
+            // 标题栏
+            Container(
+              padding: EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.1))),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.person, color: AnimeColors.miku, size: 28),
+                  SizedBox(width: 12),
+                  Text(
+                    '选择角色素材',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Spacer(),
+                  IconButton(
+                    icon: Icon(Icons.close, color: Colors.white54),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+            
+            // 风格分类
+            if (_styleCategories.isNotEmpty)
+              Container(
+                height: 60,
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: _styleCategories.length,
+                  itemBuilder: (context, index) {
+                    final isSelected = index == _selectedStyleIndex;
+                    final styleId = _styleCategories[index];
+                    final displayName = _getStyleDisplayName(styleId);
+                    
+                    return Padding(
+                      padding: EdgeInsets.only(right: 8),
+                      child: ChoiceChip(
+                        label: Text(displayName),
+                        selected: isSelected,
+                        onSelected: (selected) {
+                          if (selected) {
+                            setState(() => _selectedStyleIndex = index);
+                          }
+                        },
+                        selectedColor: AnimeColors.miku.withOpacity(0.3),
+                        backgroundColor: Colors.white.withOpacity(0.05),
+                        labelStyle: TextStyle(
+                          color: isSelected ? AnimeColors.miku : Colors.white70,
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            
+            // 角色列表
+            Expanded(
+              child: _isLoading
+                  ? Center(child: CircularProgressIndicator(color: AnimeColors.miku))
+                  : _buildCharacterGrid(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  Widget _buildCharacterGrid() {
+    final materials = _getCurrentStyleMaterials();
+    
+    if (materials.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.person_off_outlined, size: 60, color: Colors.white24),
+            SizedBox(height: 16),
+            Text('暂无角色素材', style: TextStyle(color: Colors.white54, fontSize: 16)),
+            SizedBox(height: 8),
+            Text('请先在素材库中添加角色', style: TextStyle(color: Colors.white38, fontSize: 12)),
+          ],
+        ),
+      );
+    }
+    
+    return GridView.builder(
+      padding: EdgeInsets.all(16),
+      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 150, // 和素材库保持一致的小卡片尺寸
+        crossAxisSpacing: 16,
+        mainAxisSpacing: 16,
+        childAspectRatio: 0.78, // 统一的宽高比
+      ),
+      itemCount: materials.length,
+      itemBuilder: (context, index) {
+        final material = materials[index];
+        final imagePath = material['path'] ?? '';
+        final name = material['name'] ?? '未命名';
+        final characterCode = material['characterCode'];
+        final isUploaded = characterCode != null && characterCode.isNotEmpty;
+        
+        return GestureDetector(
+          onTap: () {
+            widget.onCharacterSelected(material);
+            Navigator.pop(context);
+          },
+          child: Container(
+            decoration: BoxDecoration(
+              color: AnimeColors.cardBg,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.white.withOpacity(0.1)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // 图片
+                Expanded(
+                  child: Stack(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+                        child: Image.file(
+                          File(imagePath),
+                          fit: BoxFit.cover,
+                          width: double.infinity,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(
+                              color: Colors.grey[800],
+                              child: Icon(Icons.broken_image, color: Colors.white38),
+                            );
+                          },
+                        ),
+                      ),
+                      // 上传标记
+                      if (isUploaded)
+                        Positioned(
+                          top: 8,
+                          right: 8,
+                          child: Container(
+                            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: AnimeColors.miku,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.cloud_done, size: 12, color: Colors.white),
+                                SizedBox(width: 4),
+                                Text(
+                                  '已上传',
+                                  style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                // 名称和角色代码
+                Container(
+                  padding: EdgeInsets.all(8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (characterCode != null && characterCode.isNotEmpty) ...[
+                        SizedBox(height: 4),
+                        Text(
+                          '@$characterCode',
+                          style: TextStyle(color: AnimeColors.miku, fontSize: 10),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+// 场景素材选择对话框
+class _SceneMaterialPickerDialog extends StatefulWidget {
+  final Function(Map<String, String>) onMaterialSelected;
+  
+  const _SceneMaterialPickerDialog({
+    required this.onMaterialSelected,
+  });
+  
+  @override
+  State<_SceneMaterialPickerDialog> createState() => _SceneMaterialPickerDialogState();
+}
+
+class _SceneMaterialPickerDialogState extends State<_SceneMaterialPickerDialog> {
+  List<Map<String, String>> _sceneMaterials = [];
+  bool _isLoading = true;
+  
+  @override
+  void initState() {
+    super.initState();
+    _loadSceneMaterials();
+  }
+  
+  Future<void> _loadSceneMaterials() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final sceneJson = prefs.getString('scene_materials');
+      if (sceneJson != null) {
+        _sceneMaterials = (jsonDecode(sceneJson) as List)
+            .map((e) => Map<String, String>.from(e))
+            .toList();
+      }
+      setState(() => _isLoading = false);
+    } catch (e) {
+      print('加载场景素材失败: $e');
+      setState(() => _isLoading = false);
+    }
+  }
+  
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      child: Container(
+        width: MediaQuery.of(context).size.width * 0.8,
+        height: MediaQuery.of(context).size.height * 0.8,
+        decoration: BoxDecoration(
+          color: AnimeColors.darkBg,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: AnimeColors.blue.withOpacity(0.3), width: 2),
+        ),
+        child: Column(
+          children: [
+            // 标题栏
+            Container(
+              padding: EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.1))),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.landscape, color: AnimeColors.blue, size: 28),
+                  SizedBox(width: 12),
+                  Text(
+                    '选择场景素材',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Spacer(),
+                  IconButton(
+                    icon: Icon(Icons.close, color: Colors.white54),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+            
+            // 场景列表
+            Expanded(
+              child: _isLoading
+                  ? Center(child: CircularProgressIndicator(color: AnimeColors.blue))
+                  : _buildSceneGrid(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  Widget _buildSceneGrid() {
+    if (_sceneMaterials.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.landscape_outlined, size: 60, color: Colors.white24),
+            SizedBox(height: 16),
+            Text('暂无场景素材', style: TextStyle(color: Colors.white54, fontSize: 16)),
+            SizedBox(height: 8),
+            Text('请先在素材库中添加场景', style: TextStyle(color: Colors.white38, fontSize: 12)),
+          ],
+        ),
+      );
+    }
+    
+    return GridView.builder(
+      padding: EdgeInsets.all(16),
+      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 150,
+        crossAxisSpacing: 16,
+        mainAxisSpacing: 16,
+        childAspectRatio: 0.78,
+      ),
+      itemCount: _sceneMaterials.length,
+      itemBuilder: (context, index) {
+        final material = _sceneMaterials[index];
+        final imagePath = material['path'] ?? '';
+        final name = material['name'] ?? '未命名';
+        
+        return GestureDetector(
+          onTap: () {
+            widget.onMaterialSelected(material);
+            Navigator.pop(context);
+          },
+          child: Container(
+            decoration: BoxDecoration(
+              color: AnimeColors.cardBg,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.white.withOpacity(0.1)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // 图片
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+                    child: Image.file(
+                      File(imagePath),
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          color: Colors.grey[800],
+                          child: Icon(Icons.broken_image, color: Colors.white38),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+                // 名称
+                Container(
+                  padding: EdgeInsets.all(8),
+                  child: Text(
+                    name,
+                    style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+// 物品素材选择对话框
+class _PropMaterialPickerDialog extends StatefulWidget {
+  final Function(Map<String, String>) onMaterialSelected;
+  
+  const _PropMaterialPickerDialog({
+    required this.onMaterialSelected,
+  });
+  
+  @override
+  State<_PropMaterialPickerDialog> createState() => _PropMaterialPickerDialogState();
+}
+
+class _PropMaterialPickerDialogState extends State<_PropMaterialPickerDialog> {
+  List<Map<String, String>> _propMaterials = [];
+  bool _isLoading = true;
+  
+  @override
+  void initState() {
+    super.initState();
+    _loadPropMaterials();
+  }
+  
+  Future<void> _loadPropMaterials() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final propJson = prefs.getString('prop_materials');
+      if (propJson != null) {
+        _propMaterials = (jsonDecode(propJson) as List)
+            .map((e) => Map<String, String>.from(e))
+            .toList();
+      }
+      setState(() => _isLoading = false);
+    } catch (e) {
+      print('加载物品素材失败: $e');
+      setState(() => _isLoading = false);
+    }
+  }
+  
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      child: Container(
+        width: MediaQuery.of(context).size.width * 0.8,
+        height: MediaQuery.of(context).size.height * 0.8,
+        decoration: BoxDecoration(
+          color: AnimeColors.darkBg,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: AnimeColors.miku.withOpacity(0.3), width: 2),
+        ),
+        child: Column(
+          children: [
+            // 标题栏
+            Container(
+              padding: EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.1))),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.inventory_2, color: AnimeColors.miku, size: 28),
+                  SizedBox(width: 12),
+                  Text(
+                    '选择物品素材',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Spacer(),
+                  IconButton(
+                    icon: Icon(Icons.close, color: Colors.white54),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+            
+            // 物品列表
+            Expanded(
+              child: _isLoading
+                  ? Center(child: CircularProgressIndicator(color: AnimeColors.miku))
+                  : _buildPropGrid(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  Widget _buildPropGrid() {
+    if (_propMaterials.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.inventory_2_outlined, size: 60, color: Colors.white24),
+            SizedBox(height: 16),
+            Text('暂无物品素材', style: TextStyle(color: Colors.white54, fontSize: 16)),
+            SizedBox(height: 8),
+            Text('请先在素材库中添加物品', style: TextStyle(color: Colors.white38, fontSize: 12)),
+          ],
+        ),
+      );
+    }
+    
+    return GridView.builder(
+      padding: EdgeInsets.all(16),
+      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 150,
+        crossAxisSpacing: 16,
+        mainAxisSpacing: 16,
+        childAspectRatio: 0.78,
+      ),
+      itemCount: _propMaterials.length,
+      itemBuilder: (context, index) {
+        final material = _propMaterials[index];
+        final imagePath = material['path'] ?? '';
+        final name = material['name'] ?? '未命名';
+        
+        return GestureDetector(
+          onTap: () {
+            widget.onMaterialSelected(material);
+            Navigator.pop(context);
+          },
+          child: Container(
+            decoration: BoxDecoration(
+              color: AnimeColors.cardBg,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.white.withOpacity(0.1)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // 图片
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+                    child: Image.file(
+                      File(imagePath),
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          color: Colors.grey[800],
+                          child: Icon(Icons.broken_image, color: Colors.white38),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+                // 名称
+                Container(
+                  padding: EdgeInsets.all(8),
+                  child: Text(
+                    name,
+                    style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

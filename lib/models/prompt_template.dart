@@ -1,11 +1,14 @@
 /// 提示词模板类别枚举
 enum PromptCategory {
-  llm('llm', 'LLM提示词'),           // LLM通用提示词（新增）
+  llm('llm', 'LLM提示词'),           // LLM通用提示词
   script('script', '剧本生成'),
   character('character', '角色生成'),
+  scene('scene', '场景生成'),        // 场景生成提示词
+  prop('prop', '物品生成'),          // 物品生成提示词
   storyboard('storyboard', '分镜生成'),
   image('image', '图片生成'),
-  video('video', '视频生成');
+  video('video', '视频生成'),
+  comprehensive('comprehensive', '综合提示词'); // 分镜综合提示词（同时生成图片和视频提示词）
 
   final String id;
   final String displayName;

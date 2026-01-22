@@ -248,16 +248,43 @@ class GeeknowProvider extends BaseApiProvider {
         print('⏱️  [API Request] 超时设置: 8 分钟');
         print('─────────────────────────────────────────────────────');
         
-        // 发送 POST 请求
+        // 发送 POST 请求（带重试机制）
         print('🌐 [API Request] 正在发送 HTTP POST 请求...');
-        final response = await http.post(
-          apiUrl,
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer $_apiKey',
-          },
-          body: jsonEncode(body),
-        ).timeout(const Duration(minutes: 8));
+        
+        http.Response? response;
+        int retryCount = 0;
+        const maxRetries = 3;
+        
+        while (retryCount < maxRetries) {
+          try {
+            response = await http.post(
+              apiUrl,
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer $_apiKey',
+              },
+              body: jsonEncode(body),
+            ).timeout(const Duration(minutes: 8));
+            
+            // 成功获取响应，跳出循环
+            break;
+          } catch (e) {
+            retryCount++;
+            if (retryCount < maxRetries) {
+              print('⚠️  [API Request] 请求失败，正在重试 ($retryCount/$maxRetries)...');
+              print('⚠️  [API Request] 错误信息: $e');
+              // 等待一段时间后重试（指数退避）
+              await Future.delayed(Duration(seconds: 2 * retryCount));
+            } else {
+              print('❌ [API Request] 已达到最大重试次数 ($maxRetries)，放弃重试');
+              rethrow;
+            }
+          }
+        }
+        
+        if (response == null) {
+          throw Exception('创建角色请求失败：无法获取响应');
+        }
         
         // 响应拦截日志 - 第一时间打印
         print('');

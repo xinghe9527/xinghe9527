@@ -244,17 +244,23 @@ class _PromptConfigViewState extends State<PromptConfigView> {
   Color _getCategoryColor(PromptCategory category) {
     switch (category) {
       case PromptCategory.llm:
-        return Color(0xFF00D4AA); // Miku Green (新增 LLM 类别)
+        return Color(0xFF00D4AA); // Miku Green
       case PromptCategory.script:
         return Color(0xFF00D4FF); // Blue
       case PromptCategory.character:
         return Color(0xFFFF9800); // Orange
+      case PromptCategory.scene:
+        return Color(0xFF00D4AA); // Miku Green (场景生成)
+      case PromptCategory.prop:
+        return Color(0xFFFFB74D); // Orange (物品生成)
       case PromptCategory.storyboard:
         return Color(0xFF6C5CE7); // Purple
       case PromptCategory.image:
         return Color(0xFFFF6B9D); // Pink
       case PromptCategory.video:
         return Color(0xFFFFB74D); // Orange
+      case PromptCategory.comprehensive:
+        return Color(0xFF9C27B0); // Deep Purple (综合提示词)
     }
   }
 
@@ -406,17 +412,23 @@ class _PromptConfigViewState extends State<PromptConfigView> {
   IconData _getCategoryIcon(PromptCategory category) {
     switch (category) {
       case PromptCategory.llm:
-        return Icons.auto_awesome; // LLM 提示词图标（新增）
+        return Icons.auto_awesome;
       case PromptCategory.script:
         return Icons.description_outlined;
       case PromptCategory.character:
         return Icons.person_outline;
+      case PromptCategory.scene:
+        return Icons.landscape_outlined; // 场景生成
+      case PromptCategory.prop:
+        return Icons.inventory_2_outlined; // 物品生成
       case PromptCategory.storyboard:
         return Icons.view_agenda_outlined;
       case PromptCategory.image:
         return Icons.image_outlined;
       case PromptCategory.video:
         return Icons.video_library_outlined;
+      case PromptCategory.comprehensive:
+        return Icons.dashboard_customize; // 综合提示词（同时包含图片和视频）
     }
   }
 

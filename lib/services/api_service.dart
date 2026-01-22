@@ -1249,6 +1249,24 @@ class ApiService {
                   );
                 }
               }
+              
+              // 处理 Markdown 格式的图片链接 ![image](URL)
+              if (part['text'] != null) {
+                final text = part['text'] as String;
+                // 使用正则表达式提取 Markdown 图片链接
+                final markdownPattern = RegExp(r'!\[.*?\]\((https?://[^\)]+)\)');
+                final match = markdownPattern.firstMatch(text);
+                if (match != null && match.groupCount >= 1) {
+                  final imageUrl = match.group(1);
+                  if (imageUrl != null && imageUrl.isNotEmpty) {
+                    print('从Markdown格式中提取到图片URL: $imageUrl');
+                    return ImageGenerateResponse(
+                      imageUrl: imageUrl,
+                      revisedPrompt: null,
+                    );
+                  }
+                }
+              }
             }
           }
         }
